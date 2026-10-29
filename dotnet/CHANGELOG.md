@@ -13,3 +13,7 @@ First release.
 - `UseEmbeddedSnapshot(assembly)` so apps start with zero network; `PullSnapshotAsync` to write the deployed state to a folder.
 - Targets net8.0 (no dependencies, trimming/AOT compatible) and netstandard2.0 (System.Text.Json).
 - `KeepYourPrompts.Extensions.DependencyInjection`: `services.AddKeepYourPrompts()` with `ILogger` integration.
+- Observability ([`protocol/tracing.md`](../protocol/tracing.md)): `Meta`, `RenderWithMeta`, `PromptMeta`
+  attribute and Langfuse/LangSmith metadata maps, `IKypObserver` / `AddObserver` / `KeepYourPromptsOptions.Observers`.
+- `KeepYourPrompts.OpenTelemetry`: `AddKeepYourPromptsInstrumentation()` for tracer and meter providers,
+  `client.AddOpenTelemetry()`, `Annotate`, `Activity.SetPromptAttributes`.
