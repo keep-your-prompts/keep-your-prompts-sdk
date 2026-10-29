@@ -46,6 +46,10 @@ jobs:
           ruff format --check .
       - name: Test (conformance suite against conformance/fake_cdn.py, unit tests)
         run: python -m pytest -q
+      - name: Test without OpenTelemetry (the core never imports it; otel tests skip)
+        run: |
+          python -m pip uninstall -y opentelemetry-sdk opentelemetry-api
+          python -m pytest -q
       - name: Test without httpx (urllib fallback for AsyncClient)
         run: |
           python -m pip uninstall -y httpx

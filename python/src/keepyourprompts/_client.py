@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Mapping, Optional, TypeVar, Union
 
 from ._engine import (
     Engine,
@@ -23,7 +23,7 @@ from ._engine import (
 from ._errors import UnavailableError
 from ._io import FetchResult, http_get
 from ._outcomes import OutcomeBuffer, make_event, send_sync
-from ._template import render_template
+from ._telemetry import PromptMeta, Rendered
 
 F = TypeVar("F", bound=Callable[[Update], Any])
 
@@ -114,7 +114,41 @@ class Client:
         """
         values: Dict[str, Any] = dict(variables) if variables else {}
         values.update(kwargs)
-        return render_template(self._engine.find(name).text, values, strict=strict, on_missing=on_missing)
+        return self._engine.render(name, values, strict, on_missing)
+
+    def meta(self, name: str) -> PromptMeta:
+        """Which deployed body ``name`` is (name, version, sha256, app, env, workspace, revision, source).
+
+        Memory only. Raises :class:`NotFoundError`."""
+        return self._engine.meta(name)
+
+    def render_with_meta(
+        self,
+        name: str,
+        variables: Optional[Mapping[str, Any]] = None,
+        /,
+        *,
+        strict: bool = True,
+        on_missing: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Rendered:
+        """Like :meth:`render`, plus the :class:`PromptMeta` of the exact body rendered: ``r.text``, ``r.meta``."""
+        values: Dict[str, Any] = dict(variables) if variables else {}
+        values.update(kwargs)
+        return self._engine.render_with_meta(name, values, strict, on_missing)
+
+    def add_observer(self, observer: Any) -> Callable[[], None]:
+        """Subscribe to delivery telemetry (``on_refresh``, ``on_render_error``; see :class:`Observer`).
+
+        Returns a function that unsubscribes."""
+        obs = self._engine.observers
+        obs.append(observer)
+
+        def remove() -> None:
+            if observer in obs:
+                obs.remove(observer)
+
+        return remove
 
     def names(self) -> List[str]:
         s = self._engine.state
@@ -148,13 +182,13 @@ class Client:
         if not e.polled or self._closed:
             return False
         with self._lock:
-            ok = bool(run_sync(e.round(True, float("inf")), self._fetch))
+            ok = bool(run_sync(e.round(True, float("inf"), "manual"), self._fetch))
         deliver(e.take_updates(), self._listeners)
         return ok
 
     def report(
         self,
-        prompt: str,
+        prompt: Union[str, PromptMeta, Rendered],
         outcome: str,
         *,
         latency_ms: Optional[float] = None,
@@ -236,7 +270,7 @@ class Client:
         delay = 0.1
         while e.state is None:
             with self._lock:
-                run_sync(e.round(True, deadline), self._fetch)
+                run_sync(e.round(True, deadline, "start"), self._fetch)
             remaining = deadline - time.monotonic()
             if e.state is not None or remaining <= 0.1:
                 break
@@ -258,7 +292,7 @@ class Client:
             first = False
             with self._lock:
                 try:
-                    run_sync(e.round(False, float("inf")), self._fetch)
+                    run_sync(e.round(False, float("inf"), "poll"), self._fetch)
                 except Exception as ex:  # never let the refresher die
                     e.log(40, "refresh error: %s" % ex)
             deliver(e.take_updates(), self._listeners)
