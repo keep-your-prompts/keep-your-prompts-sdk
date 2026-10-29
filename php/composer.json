@@ -25,15 +25,20 @@
         "illuminate/container": "^10.0 || ^11.0 || ^12.0",
         "illuminate/support": "^10.0 || ^11.0 || ^12.0",
         "nyholm/psr7": "^1.8",
+        "open-telemetry/sdk": "^1.1",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^10.5 || ^11.5",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0",
         "vlucas/phpdotenv": "^5.6"
     },
+    "conflict": {
+        "open-telemetry/api": "<1.1"
+    },
     "suggest": {
         "ext-apcu": "Shares prompt state between PHP-FPM workers in shared memory (otherwise a file cache is used)",
         "ext-curl": "Faster HTTP with keep-alive (otherwise PHP stream wrappers are used)",
+        "open-telemetry/api": "OpenTelemetry add-on: kyp.refresh spans, kyp.* metrics and annotate() (KeepYourPrompts\\OpenTelemetry\\Instrumentation)",
         "psr/http-client": "Bring your own PSR-18 HTTP client (KeepYourPrompts\\Http\\Psr18Transport)"
     },
     "autoload": {

@@ -18,6 +18,12 @@ First release.
 - `get`, `tryGet`, `has`, `render(name, array $vars, OnMissing)`, `prompt`, `names`, `revision`,
   `onUpdate`, `refresh`, `status` (with `toArray()` for health endpoints); `fromEnv()` reading `KYP_*`.
 - Disk cache in the shared cross-SDK layout (`<cache_dir>/<workspace>/<app>/<env>/`).
+- Observability ([protocol/tracing.md](../protocol/tracing.md)): `meta()` and `renderWithMeta()` return a
+  `PromptMeta` (`attributes()` with the `kyp.*` and `gen_ai.prompt.*` span attributes, `traceMetadata()`,
+  `langfuseMetadata()`, `langsmithMetadata()`); a `Telemetry\Observer` hook (`observer` option, `addObserver()`)
+  receives a `RefreshRecord` per refresh round and render errors; `KeepYourPrompts\OpenTelemetry\Instrumentation`
+  (needs the suggested `open-telemetry/api`) records `kyp.refresh` spans with events, the `kyp.*` metrics and
+  annotates LLM spans, with content capture off by default.
 - HTTP over ext-curl (keep-alive), PHP streams (no extension), or any PSR-18 client (`Psr18Transport`).
 - Laravel service provider, `Prompts` facade and publishable config (auto-discovered).
 - PHP 8.1+, no required dependencies, PHPStan level max.
