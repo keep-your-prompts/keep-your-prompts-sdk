@@ -184,7 +184,7 @@ func TestBackoff(t *testing.T) {
 	h.srv.down("cdn")
 	for i := 0; i < 3; i++ {
 		c.refreshMu.Lock()
-		ok, _ := c.round(context.Background(), false)
+		ok, _ := c.round(context.Background(), false, TriggerPoll)
 		c.refreshMu.Unlock()
 		if !ok {
 			t.Fatal("origin should answer")
@@ -202,7 +202,7 @@ func TestBackoff(t *testing.T) {
 	h.srv.down("origin")
 	h.srv.down("git")
 	c.refreshMu.Lock()
-	ok, errs := c.round(context.Background(), false)
+	ok, errs := c.round(context.Background(), false, TriggerPoll)
 	c.refreshMu.Unlock()
 	if ok || !strings.Contains(errs, "cdn: HTTP 503") {
 		t.Fatalf("ok=%v errs=%q", ok, errs)

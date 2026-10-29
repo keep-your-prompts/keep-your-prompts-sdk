@@ -67,11 +67,12 @@ type state struct {
 }
 
 type mirrorRT struct {
-	cfg  Mirror
-	kind mirrorKind
-	fsys fs.FS  // kindFS
-	dir  string // kindFile
-	etag string // guarded by refreshMu
+	cfg    Mirror
+	kind   mirrorKind
+	source string // kyp.source
+	fsys   fs.FS  // kindFS
+	dir    string // kindFile
+	etag   string // guarded by refreshMu
 
 	// guarded by statusMu
 	failures int
@@ -116,6 +117,11 @@ type Client struct {
 	closeErr  error
 
 	outcomes *outcomeReporter
+
+	obsMu      sync.Mutex
+	observers  atomic.Pointer[[]*observerBox]
+	events     []TelemetryEvent // span events of the round in progress; guarded by refreshMu
+	sourceKind atomic.Value     // string: kyp.source of the mirror that served or confirmed the state
 }
 
 type outcome int
@@ -158,6 +164,11 @@ func New(ctx context.Context, opts Options, extra ...Option) (*Client, error) {
 		c.cbs = append(c.cbs, &callback{fn: opts.OnUpdate})
 	}
 	c.outcomes = newOutcomeReporter(c)
+	for _, o := range opts.Observers {
+		if o != nil {
+			c.AddObserver(o)
+		}
+	}
 
 	c.loadLocal()
 	loadedLocally := c.cur.Load() != nil
@@ -190,7 +201,7 @@ func (c *Client) manifestPath() string { return "envs/" + c.opts.App + "/" + c.o
 func (c *Client) buildMirrors() {
 	o := &c.opts
 	add := func(m Mirror, kind mirrorKind) {
-		rt := &mirrorRT{cfg: m, kind: kind}
+		rt := &mirrorRT{cfg: m, kind: kind, source: NormalizeSource(m.Name, m)}
 		switch kind {
 		case kindFS:
 			rt.fsys = embeddedRoot(m.FS, o.App, o.Env)
@@ -278,7 +289,10 @@ func embeddedRoot(fsys fs.FS, app, env string) fs.FS {
 // ---------------------------------------------------------------------------
 
 func (c *Client) find(name string) (*Prompt, error) {
-	s := c.cur.Load()
+	return c.findIn(c.cur.Load(), name)
+}
+
+func (c *Client) findIn(s *state, name string) (*Prompt, error) {
 	if s == nil {
 		return nil, &NotFoundError{Name: name, Detail: "nothing loaded for " + c.what()}
 	}
@@ -320,9 +334,14 @@ func (c *Client) Prompt(name string) (Prompt, error) {
 func (c *Client) Render(name string, vars Vars, onMissing ...OnMissing) (string, error) {
 	p, err := c.find(name)
 	if err != nil {
+		c.renderFailed(name, err)
 		return "", err
 	}
-	return RenderTemplate(p.Text, vars, onMissing...)
+	text, err := RenderTemplate(p.Text, vars, onMissing...)
+	if err != nil {
+		c.renderFailed(name, err)
+	}
+	return text, err
 }
 
 // Names returns the prompt names of the current revision, sorted.
@@ -416,7 +435,7 @@ func (c *Client) Refresh(ctx context.Context) error {
 	stop := context.AfterFunc(c.ctx, cancel)
 	defer stop()
 	c.refreshMu.Lock()
-	ok, errs := c.round(ctx, true)
+	ok, errs := c.round(ctx, true, TriggerManual)
 	c.refreshMu.Unlock()
 	c.deliverUpdates()
 	if !ok {
@@ -542,6 +561,11 @@ func (c *Client) resolveBlob(ctx context.Context, mi int, sha string) ([]byte, s
 		}
 		if SHA256Hex(r.body) != sha {
 			msg := "blob " + sha[:12] + " failed sha256 verification"
+			c.event("kyp.hash_mismatch", map[string]any{
+				"kyp.mirror":      c.mirrors[i].cfg.Name,
+				"kyp.source":      c.mirrors[i].source,
+				"kyp.blob.sha256": sha,
+			})
 			c.log.warn(c.mirrors[i].cfg.Name + ": " + msg + " (discarded)")
 			errs = append(errs, c.mirrors[i].cfg.Name+": "+msg)
 			continue
@@ -638,6 +662,29 @@ func (c *Client) install(st *state, mi int, notify bool) {
 	c.statusMu.Lock()
 	c.source = name
 	c.statusMu.Unlock()
+	c.sourceKind.Store(c.mirrors[mi].source)
+	if len(c.loadObservers()) > 0 {
+		var prev int64
+		changed := int64(0)
+		if old != nil {
+			prev = old.manifest.Revision
+			for _, n := range old.names {
+				if st.prompts[n] == nil {
+					changed++
+				}
+			}
+		}
+		for _, n := range st.names {
+			if old == nil || old.prompts[n] == nil || old.prompts[n].SHA256 != st.prompts[n].SHA256 {
+				changed++
+			}
+		}
+		c.event("kyp.update", map[string]any{
+			"kyp.revision.previous": prev,
+			"kyp.revision":          st.manifest.Revision,
+			"kyp.prompts.changed":   changed,
+		})
+	}
 	c.log.info(fmt.Sprintf("loaded %s revision %d (%d prompts) from %s", c.what(), st.manifest.Revision, len(st.prompts), name))
 	if !notify {
 		return
@@ -704,19 +751,26 @@ func (c *Client) callSafely(fn func(Update), u Update) {
 func (c *Client) loadLocal() {
 	c.refreshMu.Lock()
 	defer c.refreshMu.Unlock()
+	start := time.Now()
+	c.events = nil
 	c.locateCache()
 	var best *state
 	bestMI := -1
+	anyLocal := false
+	var errs []string
 	for mi, m := range c.mirrors {
 		if m.kind == kindHTTP {
 			continue
 		}
+		anyLocal = true
 		oc, cand, err := c.tryMirror(c.ctx, mi, best, false)
 		switch {
 		case oc == outUpdated:
 			best, bestMI = cand.state, mi
 		case oc == outFailed && !cand.missing:
 			c.recordFail(mi, err, false)
+			c.fallback(mi, err)
+			errs = append(errs, m.cfg.Name+": "+err)
 		}
 	}
 	if best != nil {
@@ -725,6 +779,15 @@ func (c *Client) loadLocal() {
 			c.writeCache(best)
 		}
 	}
+	if !anyLocal { // only a round when there was something local to read
+		c.events = nil
+		return
+	}
+	msg := strings.Join(errs, "; ")
+	if msg == "" {
+		msg = "no local copy"
+	}
+	c.emitRound(roundInfo{trigger: TriggerStart, start: start, answeredBy: bestMI, updated: best != nil, err: msg})
 }
 
 // startupFromNetwork is start-up step 2: nothing local, so block on the
@@ -736,7 +799,7 @@ func (c *Client) startupFromNetwork(ctx context.Context) error {
 	delay := 100 * time.Millisecond
 	for c.cur.Load() == nil {
 		c.refreshMu.Lock()
-		c.round(sctx, true)
+		c.round(sctx, true, TriggerStart)
 		c.refreshMu.Unlock()
 		if c.cur.Load() != nil || time.Now().Add(delay).After(deadline) || sctx.Err() != nil {
 			break
@@ -770,8 +833,13 @@ func (c *Client) startupFromNetwork(ctx context.Context) error {
 
 // round is one refresh round over the polled mirrors, in order, stopping at the
 // first that answers. Mirrors in backoff are skipped unless all others fail.
-func (c *Client) round(ctx context.Context, ignoreBackoff bool) (bool, string) {
+func (c *Client) round(ctx context.Context, ignoreBackoff bool, trigger string) (bool, string) {
+	ri := roundInfo{ctx: ctx, trigger: trigger, start: time.Now(), answeredBy: -1}
+	c.events = nil
 	cur := c.cur.Load()
+	if cur != nil {
+		ri.prev = cur.manifest.Revision
+	}
 	var errs []string
 	var skipped []int
 	attempt := func(mi int) bool {
@@ -783,6 +851,7 @@ func (c *Client) round(ctx context.Context, ignoreBackoff bool) (bool, string) {
 			c.install(cand.state, mi, true)
 			c.writeCache(cand.state)
 			c.recordOK(mi)
+			ri.answeredBy, ri.updated = mi, true
 			return true
 		case outUnchanged:
 			c.mirrors[mi].etag = cand.etag
@@ -791,14 +860,18 @@ func (c *Client) round(ctx context.Context, ignoreBackoff bool) (bool, string) {
 				c.statusMu.Lock()
 				c.source = name
 				c.statusMu.Unlock()
+				c.sourceKind.Store(c.mirrors[mi].source)
 			}
+			ri.answeredBy = mi
 			return true
 		case outStale:
 			errs = append(errs, name+": "+err)
 			c.recordFail(mi, err, false)
+			c.fallback(mi, err)
 		default:
 			errs = append(errs, name+": "+err)
 			c.recordFail(mi, err, true)
+			c.fallback(mi, err)
 		}
 		return false
 	}
@@ -846,6 +919,8 @@ func (c *Client) round(ctx context.Context, ignoreBackoff bool) (bool, string) {
 	if !answered && c.ctx.Err() == nil {
 		c.log.warn("refresh failed, serving what is held: " + joined)
 	}
+	ri.err = joined
+	c.emitRound(ri)
 	return answered, joined
 }
 
@@ -865,7 +940,7 @@ func (c *Client) run(immediate bool) {
 		}
 		first = false
 		c.refreshMu.Lock()
-		c.round(c.ctx, false)
+		c.round(c.ctx, false, TriggerPoll)
 		c.refreshMu.Unlock()
 		c.deliverUpdates()
 		if c.ctx.Err() != nil {

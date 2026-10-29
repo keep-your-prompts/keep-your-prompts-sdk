@@ -89,7 +89,10 @@ type Options struct {
 	UserAgent  string       // default "kyp-go/<Version>"
 	HTTPClient *http.Client // default: a client honouring HTTPS_PROXY with the timeouts above
 	OnUpdate   func(Update) // called on the refresher goroutine after each swap
-	Logger     *slog.Logger // default: stderr at warn level (KYP_LOG=debug|info|warn|error|off)
+	// Observers receive delivery telemetry from start-up on (see WithObserver,
+	// Client.AddObserver and protocol/tracing.md).
+	Observers []Observer
+	Logger    *slog.Logger // default: stderr at warn level (KYP_LOG=debug|info|warn|error|off)
 
 	// Outcome reporting (RecordOutcome). APIKey is KYP_API_KEY; when empty the
 	// delivery key is used. APIURL is KYP_API_URL, default DefaultAPIURL.

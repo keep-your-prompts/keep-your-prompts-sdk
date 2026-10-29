@@ -19,3 +19,6 @@ All notable changes to `github.com/keep-your-prompts/keep-your-prompts-sdk/go`. 
 - `RenderTemplate`, `TemplateVariables`, `ParseManifest`, `SHA256Hex`.
 - Optional outcome reporting (`RecordOutcome`, `FlushOutcomes`).
 - Conformance tests against `fake_cdn.py` and an in-process port of it, a fuzz test for the renderer, benchmarks.
+- Observability ([`protocol/tracing.md`](../protocol/tracing.md)): `Meta`, `RenderWithMeta`, `PromptMeta`
+  attribute and Langfuse/LangSmith metadata maps, `Observer` / `AddObserver` / `WithObserver`, `Outcome.Meta`,
+  and the `go/otel` module (`kypotel.Instrument`, `Annotate`).
