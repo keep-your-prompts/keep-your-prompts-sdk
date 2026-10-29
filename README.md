@@ -112,6 +112,18 @@ Use your prompt library from AI apps and coding agents. Everything talks to one 
 | Gemini CLI | `gemini extensions install ./integrations/gemini-cli` from a clone ([extension](integrations/gemini-cli)), or `gemini mcp add --transport http keep-your-prompts https://api.keepyourprompts.com/mcp` |
 | Other MCP clients | Cursor, VS Code, Windsurf, Zed, Codex, JetBrains: see [`integrations/README.md`](integrations/README.md); registry entry in [`integrations/mcp-registry/`](integrations/mcp-registry/server.json) |
 
+## Automation apps
+
+No-code platforms reach your workspace through the REST API and signed webhooks (Standard Webhooks): react to saved
+versions, deploys, reviews and captures, and find, render, version and deploy prompts from a workflow. See
+[`automation/`](automation/README.md).
+
+| Platform | Package | Status |
+| --- | --- | --- |
+| n8n | Community nodes `n8n-nodes-keepyourprompts` ([`automation/n8n/`](automation/n8n)): an action node and a trigger | Not on npm yet |
+| Zapier | Zapier Platform CLI app ([`automation/zapier/`](automation/zapier)): instant triggers, a search and actions | Not pushed to Zapier yet |
+| Make | Custom app source for Make's VS Code extension ([`automation/make/`](automation/make)) | Not deployed to Make yet |
+
 ## Conformance suite
 
 [`conformance/`](conformance/README.md) holds table-driven cases (`cases.json`), complete fixture mirrors and a
