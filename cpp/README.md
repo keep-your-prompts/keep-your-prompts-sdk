@@ -36,6 +36,7 @@ libcurl headers: `apt-get install libcurl4-openssl-dev`, `dnf install libcurl-de
 | `KYP_USE_SYSTEM_JSON` | `OFF` | Use an installed `nlohmann_json` instead of fetching it. An existing `nlohmann_json::nlohmann_json` target is always reused. |
 | `KYP_BUILD_TESTS`, `KYP_BUILD_EXAMPLES`, `KYP_BUILD_TOOLS` | top-level only | Tests, examples and `kyp-snapshot`. |
 | `KYP_WARNINGS_AS_ERRORS` | top-level only | `-Wall -Wextra -Werror` on the SDK's own targets. |
+| `KYP_WITH_OTEL` | `OFF` | Adds the `kyp::otel` target (`<kyp/otel.hpp>`, header-only) on `find_package(opentelemetry-cpp)`'s `opentelemetry-cpp::api`. See [Observability](#observability). |
 
 ## How it works
 
@@ -73,6 +74,9 @@ Everything is in `<kyp/kyp.hpp>`, namespace `kyp`.
 | `bool contains(std::string_view name) const` | |
 | `Prompt prompt(std::string_view name) const` | `{name, version, sha256, variables, text, render(vars)}`. Throws `kyp::NotFound`. |
 | `std::string render(std::string_view name, const Vars& vars, OnMissing = OnMissing::error) const` | Renders the template. Throws `kyp::NotFound`, `kyp::MissingVariable`. |
+| `PromptMeta meta(std::string_view name) const` | Which body is held: `name`, `version`, `sha256`, `app`, `env`, `workspace`, `revision`, `source`; `attributes()`, `trace_metadata()`, `langfuse_metadata()`, `langsmith_metadata()`. Throws `kyp::NotFound`. |
+| `Rendered render_with_meta(name, vars, OnMissing = OnMissing::error) const` | `{text, meta}`: the metadata of the exact body rendered. |
+| `ObserverId add_observer(std::shared_ptr<Observer>)` / `bool remove_observer(ObserverId)` | Delivery telemetry (see [Observability](#observability)). |
 | `std::vector<std::string> names() const` | Prompt names in the current revision. |
 | `std::int64_t revision() const` | Current revision, `0` if nothing is loaded. |
 | `Status status() const` | Health, for logs and metrics (below). |
@@ -107,6 +111,7 @@ A fluent builder: `kyp::Options().app("support-bot").env("prod").delivery_key(ke
 | `on_update(std::function<void(const Update&)>)` | none | |
 | `logger(std::function<void(LogLevel, const std::string&)>)` | stderr, `[kyp] warn: ...` | |
 | `log_level(LogLevel)` | `warn` | `KYP_LOG=debug\|info\|warn\|error\|off` |
+| `observer(std::shared_ptr<Observer>)` | none; registered before start-up, so the start-up round is reported | |
 
 `mirrors()` replaces the snapshot/CDN/origin/git defaults with your own ordered list; the embedded snapshot and disk cache still apply. Build entries with `Mirror::file(dir, name)`, `Mirror::http(base_url, name, bearer_token)` and `Mirror::embedded()`. To send the delivery key as a header to the origin instead of in the path: `Mirror::http("https://api.keepyourprompts.com/v1/delivery", "origin", key)`.
 
@@ -142,6 +147,80 @@ std::string kyp::sha256_hex(std::string_view data);
 
 All derive from `kyp::Error` (a `std::runtime_error`): `NotFound` (`.name()`), `MissingVariable` (`.names()`), `Unavailable`, `ProtocolError`.
 
+## Observability
+
+The SDK reports which prompt version each LLM call used and how delivery is doing, with the attribute, span and
+metric names of [`protocol/tracing.md`](../protocol/tracing.md), the same in every SDK. The library itself has no
+tracing dependency.
+
+**Prompt metadata** (memory only, no content):
+
+```cpp
+kyp::Rendered r = prompts.render_with_meta("triage", {{"company", "Acme"}});
+r.text;                       // the rendered prompt
+r.meta.attributes();          // {"kyp.prompt.name", "triage"}, {"kyp.prompt.version", 7}, {"kyp.prompt.sha256", ...},
+                              // {"kyp.app", ...}, {"kyp.env", ...}, {"kyp.revision", 42}, {"kyp.workspace", ...},
+                              // {"kyp.source", "cdn"}, {"gen_ai.prompt.name", "triage"}, {"gen_ai.prompt.version", "7"}
+r.meta.trace_metadata();      // flat keys: {"kyp_prompt_name", "triage"}, {"kyp_prompt_version", 7}, ...
+```
+
+Values are `kyp::AttrValue` (`std::variant<std::string, std::int64_t>`). `langfuse_metadata()` and
+`langsmith_metadata()` return the flat map too (Langfuse observation metadata, LangSmith run metadata,
+`Helicone-Property-<key>` headers). `kyp.source` is the mirror kind: `embedded`, `snapshot`, `cache`, `cdn`, `origin`,
+`git` or `custom`.
+
+**Any tracer** (`<kyp/tracing.hpp>`, header-only, no dependency): implement `kyp::tracing::Tracer` / `Span` /
+`Meter` over your tracing library, or annotate through a callback:
+
+```cpp
+#include <kyp/tracing.hpp>
+
+auto inst = std::make_shared<kyp::tracing::Instrumentation>(my_tracer, my_meter);  // either may be null
+kyp::Client prompts(kyp::Options::from_env().observer(inst));  // kyp.refresh spans + kyp.* metrics
+
+kyp::tracing::annotate(prompts, "triage", [&](const std::string& key, const kyp::AttrValue& value) {
+  my_llm_span.set_attribute(key, value);                       // kyp.* + gen_ai.prompt.*
+});
+```
+
+`kyp::tracing::annotation(meta, options)` returns the attribute list, `gauge_values(client)` the values of the
+`kyp.staleness` and `kyp.revision` gauges for your backend's collection callback.
+
+**OpenTelemetry** (`-DKYP_WITH_OTEL=ON`, link `kyp::otel`; needs the opentelemetry-cpp API, your app sets up the SDK):
+
+```cpp
+#include <kyp/otel.hpp>
+
+auto otel = kyp::otel::Instrumentation::create();                 // global tracer/meter providers
+kyp::Client prompts(kyp::Options::from_env().observer(otel->observer()));
+otel->attach(prompts);                                            // kyp.staleness / kyp.revision gauges
+
+auto r = prompts.render_with_meta("triage", {{"company", "Acme"}});
+kyp::otel::annotate(r.meta);                                      // on the active span (or pass a span)
+otel->annotate("triage", &vars);                                  // by name; adds the template with capture on
+```
+
+- A `kyp.refresh` span is recorded per refresh round (start-up, poll, `refresh_now()`; a manual refresh is a child of
+  the active span) with `kyp.fallback`, `kyp.hash_mismatch` and `kyp.update` events, plus the metrics
+  `kyp.refresh.duration`, `kyp.fallbacks`, `kyp.hash_mismatches`, `kyp.render.errors` and the gauges
+  `kyp.staleness` and `kyp.revision`, under the instrumentation scope `keepyourprompts`. Rounds that only confirmed
+  what is held (the 30-second heartbeat) are counted but not traced unless `trace_all_refreshes`.
+- `kyp::otel::Options`: `tracer_provider`, `meter_provider` (default: the global ones), `annotate`
+  (`capture_content`, `gen_ai_attributes`, `open_inference`), `trace_all_refreshes`. The C++ metrics API has no
+  bucket advice: add a View with `kyp::tracing::kRefreshBuckets` for the recommended `kyp.refresh.duration` buckets.
+- The client must outlive `attach()` (or call `detach()`).
+
+**Content capture is off by default.** With `capture_content = true` (or `KYP_OTEL_CAPTURE_CONTENT=true`),
+annotating also records the raw template as `kyp.prompt.template` and each variable passed as
+`gen_ai.prompt.variable.<name>`. Templates can hold proprietary instructions and variables often hold personal data,
+customer content or secrets; with capture on they reach every exporter and backend of your pipeline and stay there
+under its retention. Turn it on only where that is acceptable. SDK spans and metrics never carry content.
+
+**Your own observer**: derive from `kyp::Observer` (`on_refresh(const RefreshRecord&)`, `on_render_error(const
+RenderError&)`) and pass it to `Options::observer` or `add_observer`. A `RefreshRecord` has `trigger`, `result`,
+`start_time`, `duration`, `mirror`, `source`, `revision`, `previous_revision`, `workspace`, `error`, `error_type` and
+`events`. Observers run outside the client's locks; an exception is caught and logged.
+
 ## Snapshots
 
 Pull the deployed state into a folder:
@@ -174,6 +253,9 @@ ctest --test-dir build --output-on-failure
 - `examples/hello`: the ten-line integration.
 - `examples/server`: a request loop that shows hot reload (`on_update`) and a health line from `status()`.
 - `examples/bench`: the micro-benchmark quoted in the guide.
+
+With `-DKYP_WITH_OTEL=ON` (and `CMAKE_PREFIX_PATH` pointing at an opentelemetry-cpp install that has the
+in-memory exporters) `test_otel` checks the OpenTelemetry adapter against the SDK.
 
 The tests use a built-in harness (no gtest). `test_http` runs `tests/fake_cdn.py` (Python 3, standard library only; ETag/304, Cache-Control, routes that can be taken down) and is reported as skipped when `python3` is missing.
 

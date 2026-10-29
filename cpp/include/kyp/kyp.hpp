@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #define KYP_VERSION_MAJOR 0
@@ -103,6 +104,102 @@ struct Prompt {
     return ::kyp::render(text, vars, on_missing);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Observability (protocol/tracing.md). No dependency on any tracing library:
+// <kyp/tracing.hpp> bridges these to any tracer, <kyp/otel.hpp> to OpenTelemetry.
+// ---------------------------------------------------------------------------
+using AttrValue = std::variant<std::string, std::int64_t>;
+// Ordered (key, value) pairs: span attributes or a flat metadata map.
+using Attributes = std::vector<std::pair<std::string, AttrValue>>;
+
+std::string to_string(const AttrValue& v);
+
+// Which deployed body a call used. Read from memory with Client::meta() or
+// Client::render_with_meta(). Never holds prompt content.
+struct PromptMeta {
+  std::string name;
+  std::int64_t version = 0;
+  std::string sha256;
+  std::string app, env;
+  std::string workspace;    // from the manifest
+  std::int64_t revision = 0;
+  std::string source;       // embedded, snapshot, cache, cdn, origin, git or custom; "" before a load
+
+  // kyp.* plus gen_ai.prompt.name / gen_ai.prompt.version (a string) unless gen_ai is
+  // false. kyp.workspace and kyp.source are left out when empty.
+  Attributes attributes(bool gen_ai = true) const;
+  // Flat kyp_* keys (dots replaced by underscores) for any tool's free-form metadata.
+  Attributes trace_metadata() const;
+  // The same map, for a Langfuse observation's metadata / LangSmith run metadata.
+  Attributes langfuse_metadata() const { return trace_metadata(); }
+  Attributes langsmith_metadata() const { return trace_metadata(); }
+
+  bool operator==(const PromptMeta& o) const {
+    return name == o.name && version == o.version && sha256 == o.sha256 && app == o.app && env == o.env &&
+           workspace == o.workspace && revision == o.revision && source == o.source;
+  }
+  bool operator!=(const PromptMeta& o) const { return !(*this == o); }
+};
+
+// What Client::render_with_meta() returns.
+struct Rendered {
+  std::string text;
+  PromptMeta meta;
+};
+
+enum class RefreshTrigger { start, poll, manual };
+enum class RefreshResult { updated, not_modified, failed };
+const char* to_string(RefreshTrigger t);  // "start", "poll", "manual"
+const char* to_string(RefreshResult r);   // "updated", "not_modified", "failed"
+
+// A span event of a refresh round: kyp.fallback, kyp.hash_mismatch or kyp.update.
+struct TelemetryEvent {
+  std::string name;
+  std::chrono::system_clock::time_point time;
+  Attributes attributes;
+  const AttrValue* attr(std::string_view key) const;
+};
+
+// One refresh round, passed to Observer::on_refresh().
+struct RefreshRecord {
+  std::string app, env;
+  RefreshTrigger trigger = RefreshTrigger::poll;
+  RefreshResult result = RefreshResult::failed;
+  std::chrono::system_clock::time_point start_time;
+  std::chrono::nanoseconds duration{0};
+  std::string mirror;      // configured name of the mirror that answered ("" when failed)
+  std::string source;      // its normalised kind ("" when failed)
+  std::int64_t revision = 0;           // held after the round (0 when nothing)
+  std::int64_t previous_revision = 0;  // held before it
+  std::string workspace;
+  std::string error;       // when failed: short message, delivery key redacted
+  std::string error_type;  // when failed: low-cardinality error.type
+  std::vector<TelemetryEvent> events;
+};
+
+// A failed render() / render_with_meta(), passed to Observer::on_render_error().
+struct RenderError {
+  std::string app, env, name;
+  std::string error_type;  // "not_found" or "missing_variable"
+};
+
+// Receives delivery telemetry. Called outside the client's locks (refresh rounds
+// on the refresher thread, or the caller of refresh_now() / render()); an
+// exception thrown by an observer is caught and logged.
+class Observer {
+ public:
+  virtual ~Observer() = default;
+  virtual void on_refresh(const RefreshRecord&) {}
+  virtual void on_render_error(const RenderError&) {}
+};
+
+using ObserverId = std::uint64_t;
+
+// A mirror's configured name and kind ("embedded", "file", "cache", "http") to kyp.source.
+std::string normalize_source(std::string_view name, std::string_view kind);
+// A failure message to a low-cardinality error.type.
+std::string classify_error(std::string_view message);
 
 // ---------------------------------------------------------------------------
 // Mirrors: every copy of a workspace uses the same layout
@@ -201,6 +298,9 @@ class Options {
   Options& on_update(std::function<void(const Update&)> cb) { on_update_ = std::move(cb); return *this; }
   Options& logger(Logger l) { logger_ = std::move(l); return *this; }
   Options& log_level(LogLevel l) { log_level_ = l; return *this; }
+  // Delivery telemetry hook, registered before start-up so the start-up round
+  // is reported too. May be called several times.
+  Options& observer(std::shared_ptr<Observer> o) { observers_.push_back(std::move(o)); return *this; }
 
  private:
   friend struct detail::Engine;
@@ -224,6 +324,7 @@ class Options {
   Logger logger_;  // empty = stderr
   LogLevel log_level_ = LogLevel::warn;
   bool log_off_ = false;
+  std::vector<std::shared_ptr<Observer>> observers_;
 };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +353,19 @@ class Client {
   // Render a prompt. Throws kyp::NotFound or kyp::MissingVariable.
   std::string render(std::string_view name, const Vars& vars,
                      OnMissing on_missing = OnMissing::error) const;
+
+  // Which deployed body `name` is (protocol/tracing.md). Memory only. Throws kyp::NotFound.
+  PromptMeta meta(std::string_view name) const;
+  // render() plus the metadata of the exact body rendered.
+  Rendered render_with_meta(std::string_view name, const Vars& vars,
+                            OnMissing on_missing = OnMissing::error) const;
+
+  // Subscribe to delivery telemetry (refresh rounds, render errors).
+  ObserverId add_observer(std::shared_ptr<Observer> observer);
+  bool remove_observer(ObserverId id);
+
+  const std::string& app() const;
+  const std::string& env() const;
 
   std::vector<std::string> names() const;
   std::int64_t revision() const;  // 0 when nothing is loaded

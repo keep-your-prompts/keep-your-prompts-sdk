@@ -12,6 +12,19 @@ kyp_test(test_template)
 kyp_test(test_manifest)
 kyp_test(test_client)
 kyp_test(test_embedded)
+kyp_test(test_telemetry)
+
+# The OpenTelemetry adapter against the SDK's in-memory exporters.
+if(KYP_WITH_OTEL)
+  if(TARGET opentelemetry-cpp::in_memory_span_exporter AND TARGET opentelemetry-cpp::in_memory_metric_exporter)
+    kyp_test(test_otel)
+    target_link_libraries(test_otel PRIVATE kyp::otel opentelemetry-cpp::trace opentelemetry-cpp::metrics
+                                            opentelemetry-cpp::in_memory_span_exporter
+                                            opentelemetry-cpp::in_memory_metric_exporter)
+  else()
+    message(STATUS "kyp: opentelemetry-cpp has no in-memory exporters; test_otel is not built")
+  endif()
+endif()
 kyp_embed_snapshot(test_embedded DIR fixtures/snapshot)
 
 if(KYP_WITH_CURL)
