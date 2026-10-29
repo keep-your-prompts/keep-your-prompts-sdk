@@ -15,4 +15,10 @@ All notable changes to the Swift SDK (`KeepYourPrompts`) are documented here. Th
   `revision`, `status`; `refresh()`, `close()`, `updates` `AsyncStream`, `onUpdate` callback.
 - `Options` with `fromEnvironment()` (`KYP_*` variables) and `Options.defaultCacheDirectory`.
 - `renderTemplate`, `templateVariables(in:)`, `sha256Hex`, `Manifest.parse`, `pullSnapshot(_:to:)`.
+- Observability (`protocol/tracing.md`): `meta(_:)` and `renderWithMeta(_:_:onMissing:)` return a `PromptMeta`
+  (`attributes()` with the `kyp.*` and `gen_ai.prompt.*` span attributes, `traceMetadata()`, `langfuseMetadata()`,
+  `langsmithMetadata()`); a `TelemetryObserver` hook (`Options.observers`, `addObserver`) receives a
+  `RefreshRecord` per refresh round and render errors; the separate product `KeepYourPromptsOTel`
+  (`KYPInstrumentation`, on `OpenTelemetryApi`) records `kyp.refresh` spans with events, the `kyp.*` metrics and
+  annotates LLM spans, with content capture off by default.
 - XCTest conformance suite (all 12 required behaviours) against an in-process fake and `conformance/fake_cdn.py`.
