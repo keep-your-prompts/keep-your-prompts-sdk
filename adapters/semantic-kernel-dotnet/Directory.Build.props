@@ -1,0 +1,29 @@
+<Project>
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <Authors>Keep Your Prompts</Authors>
+    <Company>Keep Your Prompts</Company>
+    <Product>Keep Your Prompts</Product>
+    <PackageProjectUrl>https://keepyourprompts.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/keep-your-prompts/keep-your-prompts-sdk</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>prompts;llm;prompt-management;semantic-kernel;ai</PackageTags>
+    <!-- The license is the repository's root LICENSE file (LicenseRef-Republic-Lex-Aequa-1.0), packed at the package root. -->
+    <KypLicenseFile>$(MSBuildThisFileDirectory)../../LICENSE</KypLicenseFile>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(KypLicenseFile)" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
+</Project>
