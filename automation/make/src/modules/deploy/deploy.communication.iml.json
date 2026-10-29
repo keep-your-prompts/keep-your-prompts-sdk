@@ -1,0 +1,12 @@
+{
+    "url": "/v1/apps/{{encodeURL(parameters.app)}}/deploy",
+    "method": "POST",
+    "body": {
+        "env": "{{parameters.env}}",
+        "prompts": "{{parameters.prompts}}",
+        "message": "{{ifempty(parameters.message, undefined)}}"
+    },
+    "response": {
+        "output": "{{body}}"
+    }
+}

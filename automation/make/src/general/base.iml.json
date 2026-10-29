@@ -1,0 +1,17 @@
+{
+    "baseUrl": "https://api.keepyourprompts.com",
+    "headers": {
+        "authorization": "Bearer {{connection.apiKey}}",
+        "accept": "application/json"
+    },
+    "response": {
+        "error": {
+            "message": "[{{statusCode}}] {{ifempty(body.detail, ifempty(body.title, 'Keep Your Prompts returned an error'))}}"
+        }
+    },
+    "log": {
+        "sanitize": [
+            "request.headers.authorization"
+        ]
+    }
+}

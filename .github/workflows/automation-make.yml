@@ -1,0 +1,36 @@
+name: automation-make
+
+# Make has no package registry: the app is deployed with Make's VS Code extension (automation/make/README.md),
+# so this workflow only validates it.
+on:
+  push:
+    branches: [main]
+    paths: ['automation/make/**', 'automation/test-vectors/**', 'conformance/cases.json', '.github/workflows/automation-make.yml']
+  pull_request:
+    paths: ['automation/make/**', 'automation/test-vectors/**', 'conformance/cases.json', '.github/workflows/automation-make.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automation-make-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: automation/make
+    shell: bash
+
+jobs:
+  test:
+    name: validate and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate the app definition
+        run: node scripts/validate.mjs
+      - name: Test (static checks, custom IML functions, shared webhook vectors)
+        run: node --test test/

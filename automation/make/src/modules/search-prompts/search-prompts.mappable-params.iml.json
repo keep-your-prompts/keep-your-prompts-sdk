@@ -1,0 +1,39 @@
+[
+    {
+        "name": "query",
+        "type": "text",
+        "label": "Search text",
+        "required": true
+    },
+    {
+        "name": "scope",
+        "type": "select",
+        "label": "Search in",
+        "default": "mine",
+        "options": [
+            {
+                "label": "My workspace",
+                "value": "mine"
+            },
+            {
+                "label": "Workspace and public library",
+                "value": "all"
+            },
+            {
+                "label": "Public library",
+                "value": "public"
+            }
+        ]
+    },
+    {
+        "name": "limit",
+        "type": "uinteger",
+        "label": "Limit",
+        "default": 10,
+        "help": "Maximum number of results to return (1–50).",
+        "validate": {
+            "min": 1,
+            "max": 50
+        }
+    }
+]

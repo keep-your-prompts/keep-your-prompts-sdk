@@ -1,0 +1,9 @@
+[
+    {
+        "name": "apiKey",
+        "type": "password",
+        "label": "API Key",
+        "required": true,
+        "help": "A workspace API key (`kyp_live_…`) from Settings › API keys in Keep Your Prompts. Use an editor key created by an owner or admin to save versions, deploy and receive webhook events; a viewer key can only read."
+    }
+]

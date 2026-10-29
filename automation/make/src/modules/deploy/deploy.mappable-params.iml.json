@@ -1,0 +1,49 @@
+[
+    {
+        "name": "app",
+        "type": "text",
+        "label": "App",
+        "required": true,
+        "help": "The app’s slug, for example `support-bot`."
+    },
+    {
+        "name": "env",
+        "type": "text",
+        "label": "Environment",
+        "required": true,
+        "default": "prod"
+    },
+    {
+        "name": "prompts",
+        "type": "array",
+        "label": "Prompts",
+        "required": true,
+        "spec": [
+            {
+                "name": "name",
+                "type": "text",
+                "label": "Name in the app",
+                "required": true,
+                "help": "The name your code reads the prompt by."
+            },
+            {
+                "name": "assetId",
+                "type": "text",
+                "label": "Prompt ID",
+                "required": true,
+                "help": "The prompt’s ID (`ast_…`). Map it from Get a Prompt or Search Prompts."
+            },
+            {
+                "name": "version",
+                "type": "uinteger",
+                "label": "Version",
+                "help": "Leave empty for the current version."
+            }
+        ]
+    },
+    {
+        "name": "message",
+        "type": "text",
+        "label": "Message"
+    }
+]

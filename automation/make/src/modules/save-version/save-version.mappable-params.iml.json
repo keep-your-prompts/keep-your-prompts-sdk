@@ -1,0 +1,27 @@
+[
+    {
+        "name": "prompt",
+        "type": "text",
+        "label": "Prompt",
+        "required": true,
+        "help": "The slug (`support-triage`) or ID (`ast_…`) of the prompt."
+    },
+    {
+        "name": "body",
+        "type": "text",
+        "label": "Body",
+        "required": true,
+        "multiline": true
+    },
+    {
+        "name": "message",
+        "type": "text",
+        "label": "Version message"
+    },
+    {
+        "name": "baseVersion",
+        "type": "uinteger",
+        "label": "Based on version",
+        "help": "The version this edit started from. If the prompt has changed since, the module fails instead of overwriting."
+    }
+]

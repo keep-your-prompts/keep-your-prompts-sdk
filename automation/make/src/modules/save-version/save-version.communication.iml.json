@@ -1,0 +1,23 @@
+[
+    {
+        "url": "/v1/assets/{{encodeURL(parameters.prompt)}}",
+        "method": "GET",
+        "response": {
+            "temp": {
+                "id": "{{body.id}}"
+            }
+        }
+    },
+    {
+        "url": "/v1/assets/{{temp.id}}",
+        "method": "PATCH",
+        "body": {
+            "body": "{{parameters.body}}",
+            "message": "{{ifempty(parameters.message, undefined)}}",
+            "baseVersion": "{{ifempty(parameters.baseVersion, undefined)}}"
+        },
+        "response": {
+            "output": "{{body}}"
+        }
+    }
+]

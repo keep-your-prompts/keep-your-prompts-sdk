@@ -1,0 +1,12 @@
+[
+    {
+        "name": "revision",
+        "label": "Revision",
+        "type": "uinteger"
+    },
+    {
+        "name": "toRevision",
+        "label": "To revision",
+        "type": "uinteger"
+    }
+]

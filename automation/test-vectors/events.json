@@ -1,0 +1,577 @@
+{
+  "description": "The 18 Keep Your Prompts webhook event types (payload version 1) with the examples from docs/webhooks.md. GET /v1/webhooks/event-types serves the live catalogue; each app embeds its own copy and its tests check it against this file.",
+  "payloadVersion": 1,
+  "testEvent": "webhook.test",
+  "events": [
+    {
+      "type": "prompt.created",
+      "group": "prompts",
+      "label": "Prompt created",
+      "description": "A prompt (or skill, agent, snippet…) was created, at version 1.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "prompt.created",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+          },
+          "version": 1,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "prompt.version_saved",
+      "group": "prompts",
+      "label": "Version saved",
+      "description": "A new current version was saved: an edit, a restore, a merged review or an import from a sync target.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "prompt.version_saved",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+          },
+          "version": 4,
+          "previousVersion": 3,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "message": "Tighter instructions",
+          "reviewId": null,
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "prompt.deleted",
+      "group": "prompts",
+      "label": "Prompt deleted",
+      "description": "A prompt was deleted (in the app, through the API or by a sync target).",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "prompt.deleted",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+          },
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "deploy.completed",
+      "group": "deploys",
+      "label": "Deploy completed",
+      "description": "An app environment points at new prompt versions (directly, or when a gated deploy was approved).",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "deploy.completed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "app": {
+            "id": "app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C",
+            "slug": "helpdesk"
+          },
+          "env": "production",
+          "revision": 18,
+          "deploymentId": "dep_4Tz9Wm2Lq8Px1Rk7Hb3Nd5C",
+          "message": "Ship v4",
+          "prompts": [
+            {
+              "name": "triage",
+              "assetId": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+              "version": 4,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "deploy.rolled_back",
+      "group": "deploys",
+      "label": "Rolled back",
+      "description": "An app environment went back to an earlier revision.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "deploy.rolled_back",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "app": {
+            "id": "app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C",
+            "slug": "helpdesk"
+          },
+          "env": "production",
+          "revision": 19,
+          "toRevision": 17,
+          "deploymentId": "dep_9Lq2Wm8Px4Tz1Rk7Hb3Nd5C",
+          "prompts": [
+            {
+              "name": "triage",
+              "assetId": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+              "version": 4,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "deploy.requested",
+      "group": "deploys",
+      "label": "Deploy requested",
+      "description": "A deploy to an environment with an approval rule waits for approvers.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "deploy.requested",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "app": {
+            "id": "app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C",
+            "slug": "helpdesk"
+          },
+          "env": "production",
+          "requestId": "drq_6Wm2Lq8Px4Tz1Rk7Hb3Nd9C",
+          "requiredApprovals": 2,
+          "prompts": [
+            {
+              "name": "triage",
+              "assetId": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+              "version": 4,
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          ],
+          "message": "Ship v4",
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "deploy.approved",
+      "group": "deploys",
+      "label": "Deploy approved",
+      "description": "The last needed approval was given; the deploy is live.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "deploy.approved",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "app": {
+            "id": "app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C",
+            "slug": "helpdesk"
+          },
+          "env": "production",
+          "requestId": "drq_6Wm2Lq8Px4Tz1Rk7Hb3Nd9C",
+          "revision": 18,
+          "deploymentId": "dep_4Tz9Wm2Lq8Px1Rk7Hb3Nd5C",
+          "approvedBy": [
+            "Ben Okafor",
+            "Chen Wei"
+          ],
+          "actor": {
+            "type": "user",
+            "id": "usr_8Rk1Hb7Nd4Fq2Lm9Pw4Xr1T",
+            "name": "Chen Wei"
+          }
+        }
+      }
+    },
+    {
+      "type": "review.requested",
+      "group": "reviews",
+      "label": "Review requested",
+      "description": "Someone proposed a change and asked for a review.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "review.requested",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "review": {
+            "id": "rev_8Wm3Qx5Lp2Tz9Rk1Hb7Nd4F",
+            "number": 12,
+            "title": "Shorter greeting"
+          },
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+          },
+          "baseVersion": 3,
+          "headVersion": 4,
+          "reviewers": [
+            "usr_8Rk1Hb7Nd4Fq2Lm9Pw4Xr1T"
+          ],
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "review.merged",
+      "group": "reviews",
+      "label": "Review merged",
+      "description": "An approved review was merged: its proposal is the current version.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "review.merged",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "review": {
+            "id": "rev_8Wm3Qx5Lp2Tz9Rk1Hb7Nd4F",
+            "number": 12,
+            "title": "Shorter greeting"
+          },
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+          },
+          "version": 4,
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "review.closed",
+      "group": "reviews",
+      "label": "Review closed",
+      "description": "A review was closed without merging.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "review.closed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "review": {
+            "id": "rev_8Wm3Qx5Lp2Tz9Rk1Hb7Nd4F",
+            "number": 12,
+            "title": "Shorter greeting"
+          },
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V"
+          },
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "capture.created",
+      "group": "inbox",
+      "label": "Capture created",
+      "description": "A prompt was captured into the inbox (browser extension or API).",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "capture.created",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "capture": {
+            "id": "cap_1Rk7Hb3Nd5CTz9Wm2Lq8Px4",
+            "source": "claude.ai",
+            "text": "Summarize this thread in three bullet points for an executive.",
+            "truncated": false,
+            "draft": false,
+            "conversationUrl": null
+          },
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "eval.run_completed",
+      "group": "evals",
+      "label": "Eval run finished",
+      "description": "An evaluation run finished (done or failed).",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "eval.run_completed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "run": {
+            "id": "evr_2Lq8Px4Tz1Rk7Hb3Nd9C6Wm",
+            "status": "done",
+            "trigger": "manual",
+            "passRate": 0.92,
+            "costUsd": 0.0184,
+            "error": null,
+            "versions": [
+              4
+            ],
+            "models": [
+              "claude-haiku-5-5"
+            ]
+          },
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V"
+          }
+        }
+      }
+    },
+    {
+      "type": "eval.gate_failed",
+      "group": "evals",
+      "label": "Eval gate failed",
+      "description": "A deploy was refused because a prompt is below the environment’s eval gate.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "eval.gate_failed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "app": {
+            "id": "app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C",
+            "slug": "helpdesk"
+          },
+          "env": "production",
+          "checkId": "egc_3Nd9C6Wm2Lq8Px4Tz1Rk7Hb",
+          "minPassRate": 0.9,
+          "items": [
+            {
+              "prompt": "triage",
+              "assetId": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+              "version": 4,
+              "status": "fail",
+              "passRate": 0.75,
+              "reason": null
+            }
+          ],
+          "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+          }
+        }
+      }
+    },
+    {
+      "type": "sync.conflict",
+      "group": "sync",
+      "label": "Sync conflict",
+      "description": "A prompt changed here and in a sync target; someone must choose.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "sync.conflict",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "target": {
+            "id": "syt_5Lq8Wm2Px9Tz1Rk7Hb3Nd4C",
+            "provider": "github",
+            "name": "acme/prompts"
+          },
+          "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "name": "Support triage"
+          },
+          "path": "prompts/support-triage.md",
+          "baseVersion": 3,
+          "oursVersion": 4,
+          "theirsVersion": 5
+        }
+      }
+    },
+    {
+      "type": "sync.failed",
+      "group": "sync",
+      "label": "Sync failing",
+      "description": "A sync target started failing after working, or needs reconnecting.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "sync.failed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "target": {
+            "id": "syt_5Lq8Wm2Px9Tz1Rk7Hb3Nd4C",
+            "provider": "github",
+            "name": "acme/prompts"
+          },
+          "status": "needs_reconnect",
+          "error": "The token was revoked.",
+          "errorCount": 1,
+          "nextAttemptAt": null
+        }
+      }
+    },
+    {
+      "type": "quota.warning",
+      "group": "workspace",
+      "label": "Quota warning",
+      "description": "The workspace used 80% (or all) of a monthly or daily allowance.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "quota.warning",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "metric": "fetches",
+          "threshold": 0.8,
+          "limit": 500000,
+          "plan": "pro",
+          "period": "2026-10"
+        }
+      }
+    },
+    {
+      "type": "member.joined",
+      "group": "workspace",
+      "label": "Member joined",
+      "description": "Someone joined the workspace.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "member.joined",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "member": {
+            "userId": "usr_8Rk1Hb7Nd4Fq2Lm9Pw4Xr1T",
+            "name": "Chen Wei",
+            "email": "chen@acme.dev",
+            "role": "editor"
+          },
+          "via": "invitation"
+        }
+      }
+    },
+    {
+      "type": "member.removed",
+      "group": "workspace",
+      "label": "Member removed",
+      "description": "Someone was removed from, or left, the workspace.",
+      "example": {
+        "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "type": "member.removed",
+        "timestamp": "2026-10-29T10:00:00.000Z",
+        "version": 1,
+        "workspace": {
+          "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+        },
+        "data": {
+          "member": {
+            "userId": "usr_8Rk1Hb7Nd4Fq2Lm9Pw4Xr1T",
+            "name": "Chen Wei",
+            "email": "chen@acme.dev",
+            "role": "editor"
+          },
+          "reason": "left"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+    "promptId": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+    "version": 4,
+    "rendered": "You triage support tickets for Acme.",
+    "variables": [
+        "company"
+    ]
+}

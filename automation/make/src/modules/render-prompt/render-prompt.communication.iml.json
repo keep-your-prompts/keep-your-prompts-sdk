@@ -1,0 +1,26 @@
+[
+    {
+        "url": "/v1/assets/{{encodeURL(parameters.prompt)}}",
+        "method": "GET",
+        "response": {
+            "temp": {
+                "id": "{{body.id}}"
+            }
+        }
+    },
+    {
+        "url": "/v1/assets/{{temp.id}}/compiled",
+        "method": "GET",
+        "qs": {
+            "version": "{{ifempty(parameters.version, undefined)}}"
+        },
+        "response": {
+            "output": {
+                "promptId": "{{temp.id}}",
+                "version": "{{body.version}}",
+                "variables": "{{body.variables}}",
+                "rendered": "{{kypRender(body.body, parameters.variables, ifempty(parameters.onMissing, 'error'))}}"
+            }
+        }
+    }
+]

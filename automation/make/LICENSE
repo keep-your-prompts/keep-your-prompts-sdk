@@ -1,0 +1,175 @@
+The Republic Lex Aequa License
+Version 1.0, with the Client and Embedding Permission
+
+Licensor: The Republic US LLC, 1207 Delaware Ave 192, Wilmington, DE 19806, USA ("The Republic", https://republic.global)
+Copyright (c) 2026 The Republic US LLC
+Software: Keep Your Prompts SDKs, CLI, protocol specification, conformance suite and integrations (the contents of
+the keep-your-prompts-sdk repository)
+
+"Lex Aequa" is Latin for "the fair law": everyone may use the Software freely, and only the Licensor may sell it or
+offer it as a service. You may build the Software into your own products and sell them, as section 3A explains.
+
+
+1. Acceptance
+
+By using, copying, modifying or distributing the Software, you agree to these terms. If you do not agree, you have
+no rights to the Software.
+
+
+2. Grant
+
+Subject to the limitations in section 3, the Licensor grants you a worldwide, royalty-free, non-exclusive,
+non-transferable, non-sublicensable licence to:
+
+  (a) use the Software for any purpose, commercial or not, including running it in production for your own
+      organisation, your Affiliates and the products and services you offer;
+  (b) copy and modify the Software and prepare works based on it;
+  (c) distribute the Software and works based on it, free of charge, or as part of Your Product under section 3A,
+      with this licence and the notices in it.
+
+You may let contractors and service providers install, operate and maintain the Software on your behalf and for your
+benefit, and charge you for that work, provided they do so under these terms.
+
+
+3. Limitations
+
+You may not:
+
+  (a) sell, rent, lease, license, sublicense or otherwise make the Software, or any work based on it, available to
+      a third party for a fee or other consideration, alone or bundled with other products or services, except as
+      part of Your Product under section 3A;
+  (b) provide, distribute or use the Software, or any work based on it, as part of a Competing Offering, or use it
+      to obtain content from or send content to a Competing Offering operated by anyone other than the Licensor,
+      whether or not you charge for it;
+  (c) present the Software, or any work based on it, to third parties as your own product (for example, by
+      distributing it as a stand-alone SDK, CLI or integration under your own name or branding), or remove, alter or
+      obscure any licensing, copyright or other notices in it;
+  (d) use the Software in breach of applicable law.
+
+Using the Software inside your own products and services, including those you sell, is allowed as section 3A
+describes, as long as they are not a Competing Offering. The limitations in this section are conditions of, and
+limits on the scope of, every licence these terms grant: anything you do with the Software outside them is not
+licensed.
+
+
+3A. Client and Embedding Permission
+
+In addition to section 2, you may copy the Software, unmodified or modified, in source or compiled form, into a
+product or service of your own or one you build for a client ("Your Product"), and use, distribute, sell, license
+and otherwise make Your Product available to anyone, for a fee or free of charge, under terms of your choice
+(including app store terms), as long as:
+
+  (a) Your Product is not a Competing Offering;
+  (b) the Software in Your Product is used only to obtain, cache, verify, render, edit or publish prompts and other
+      content held by the Licensor's Services or by Your Sources;
+  (c) Your Product includes this licence and the Software's notices, in its source code if you distribute source,
+      and otherwise in its documentation or in an "about", "acknowledgements" or "legal notices" screen or file that
+      its users can reach; and
+  (d) the terms of Your Product do not claim to grant rights in the Software beyond these terms.
+
+People who receive Your Product may use the Software in it as part of Your Product without accepting anything
+further; any other use of the Software by them is governed by these terms. Within the limits of section 3A (b), you
+may implement the protocol described in the Software's specification in your own code.
+
+
+4. Patents
+
+The Licensor grants you a licence, under any patent claims it can license or becomes able to license and that the
+Software as provided by the Licensor infringes, to do everything sections 2 and 3A allow, subject to section 3. This
+licence does not cover patent claims infringed only by your changes or additions to the Software. If you or your
+company make a written claim, or bring a lawsuit, cross-claim or counterclaim, alleging that the Software infringes
+a patent, the patent licence of you and your company under these terms ends immediately.
+
+
+5. Notices
+
+Anyone who receives a copy of the Software or a work based on it from you must also receive this licence; for Your
+Product, section 3A (c) says how. If you modify the Software and distribute it in source form, you must mark the
+modified files with a prominent notice that you changed them.
+
+
+6. No Other Rights
+
+These terms do not imply any licences other than those expressly granted. They grant no right to use the
+Licensor's names, logos or trademarks, including "Keep Your Prompts", "KYP" and "The Republic", except to state
+truthfully where the Software came from or that Your Product works with the Licensor's Services. A modified version
+of the Software that you distribute must not use those names as its own name. The Licensor may offer the Software
+under other terms, including commercial terms.
+
+Third-party components included with the Software are licensed under their own terms, which their notices state;
+these terms do not apply to them.
+
+These terms give the Licensor no rights in, and place no limitations on, the prompts, data and other content you
+use with the Software, or the output you produce with it. That content remains yours, as far as these terms are
+concerned.
+
+
+7. Termination
+
+If you use the Software in breach of these terms, your licences end automatically. If the Licensor notifies you of
+the breach and, within 30 days of the notice, you stop it and take practical steps to correct its effects, your
+licences are reinstated from that point, but only once for you and your company: a later breach by you or your
+company ends those licences for good. Reinstatement does not license anything done in breach before it. Licences of
+those who received the Software from you are not affected while they comply.
+
+
+8. No Liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OR CONDITION OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING FITNESS
+FOR A PARTICULAR PURPOSE, MERCHANTABILITY AND NON-INFRINGEMENT. TO THE EXTENT ALLOWED BY LAW, THE LICENSOR IS NOT
+LIABLE FOR ANY DAMAGES OF ANY KIND ARISING FROM THE SOFTWARE OR THESE TERMS, INCLUDING LOSS OF DATA, LOSS OF
+PROFITS AND THE COST OF RECOVERING DATA, EVEN IF ADVISED OF THEIR POSSIBILITY. You are responsible for testing the
+prompts and content you use with the Software before you rely on them.
+
+
+8A. Governing Law
+
+These terms are governed by the laws of the State of Delaware, USA, without regard to its conflict-of-laws rules,
+and by the federal laws of the United States. The UN Convention on Contracts for the International Sale of Goods
+does not apply. The state and federal courts located in the State of Delaware have exclusive jurisdiction over
+disputes about these terms, except that the Licensor may seek injunctive relief, or enforce its copyrights, patents
+and trademarks, in any competent court. Nothing in these terms removes protection that mandatory consumer law gives
+you.
+
+
+9. Definitions
+
+"Licensor" is the entity named above, which offers the Software under these terms.
+
+"Software" is the software named above, in source or compiled form, including its documentation, specifications,
+schemas, test suites, fixtures, examples, configuration, tools and any part of them, as made available by the
+Licensor under these terms.
+
+"You" is the individual or entity exercising rights under these terms. "Your company" is any legal entity you work
+for, plus its Affiliates. A "third party" is anyone other than you and your company.
+
+"Use" is anything you do with the Software that needs a licence under these terms, including running, copying,
+modifying, distributing and hosting it.
+
+"Affiliate" is any entity that controls, is controlled by or is under common control with you, where control means
+owning more than half of its voting interests or having the right to direct its management.
+
+"Licensor's Services" are the services the Licensor or its Affiliates operate under the Keep Your Prompts name,
+including its API, content delivery network and mirrors the Licensor operates or authorises, used under the
+Licensor's terms for them.
+
+"Your Sources" are files, folders, snapshots, repositories, storage, mirrors and servers that you, your company,
+your client or the users of Your Product own or control, including general-purpose storage, git hosting and
+content-delivery services that hold that content for them, but not a Competing Offering.
+
+"Prompt Management Service" is functionality that lets people store, organise, version, review, test, approve,
+deploy, roll back, sync, mirror, distribute or deliver prompts, prompt templates, skills, agent instructions or
+similar content that they supply or control, for use in their own or other people's applications, agents or tools.
+
+"Competing Offering" is any product or service provided to third parties, for a fee or free of charge (including
+one funded by advertising, data, sponsorship, donations or the sale of other products or services), in which the
+Software, or any work based on it, provides any part of a Prompt Management Service to those third parties, however
+the Software is combined, wrapped, called or separated from the rest of it. It includes such a product or service
+offered as software, hosted, managed, "as a service", white-labelled, under another name, through a reseller or
+marketplace, or operated for others, and the clients, tools and integrations provided for it. It does not include
+a product or service in which the Prompt Management Service is provided by the Licensor's Services, or in which the
+Software only obtains and uses prompts that you, your company or your client author or control for that product's
+or service's own features, even when its users use those features.
+
+"Work based on the Software" is any modification, translation, derivative work, fork or product that contains or is
+derived from the Software or a substantial part of it.

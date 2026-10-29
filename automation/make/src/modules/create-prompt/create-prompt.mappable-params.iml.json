@@ -1,0 +1,82 @@
+[
+    {
+        "name": "name",
+        "type": "text",
+        "label": "Name",
+        "required": true
+    },
+    {
+        "name": "body",
+        "type": "text",
+        "label": "Body",
+        "required": true,
+        "multiline": true,
+        "help": "The prompt text. Write variables as {{name}}."
+    },
+    {
+        "name": "kind",
+        "type": "select",
+        "label": "Kind",
+        "default": "prompt",
+        "options": [
+            {
+                "label": "Prompt",
+                "value": "prompt"
+            },
+            {
+                "label": "System prompt",
+                "value": "system_prompt"
+            },
+            {
+                "label": "Skill",
+                "value": "skill"
+            },
+            {
+                "label": "Agent",
+                "value": "agent"
+            },
+            {
+                "label": "Snippet",
+                "value": "snippet"
+            },
+            {
+                "label": "Instruction",
+                "value": "instruction"
+            },
+            {
+                "label": "MCP config",
+                "value": "mcp_config"
+            },
+            {
+                "label": "Test set",
+                "value": "test_set"
+            }
+        ]
+    },
+    {
+        "name": "slug",
+        "type": "text",
+        "label": "Slug",
+        "help": "Handle used by deploys and includes; derived from the name when empty."
+    },
+    {
+        "name": "description",
+        "type": "text",
+        "label": "Description",
+        "multiline": true
+    },
+    {
+        "name": "tags",
+        "type": "array",
+        "label": "Tags",
+        "spec": {
+            "type": "text",
+            "label": "Tag"
+        }
+    },
+    {
+        "name": "message",
+        "type": "text",
+        "label": "Version message"
+    }
+]

@@ -1,0 +1,17 @@
+{
+    "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+    "slug": "support-triage",
+    "name": "Support triage",
+    "kind": "prompt",
+    "description": "Routes support tickets",
+    "tags": [
+        "support"
+    ],
+    "currentVersion": 4,
+    "createdAt": "2026-10-01T09:00:00.000Z",
+    "updatedAt": "2026-10-29T10:00:00.000Z",
+    "body": "You triage support tickets for {{company}}.",
+    "variables": [
+        "company"
+    ]
+}

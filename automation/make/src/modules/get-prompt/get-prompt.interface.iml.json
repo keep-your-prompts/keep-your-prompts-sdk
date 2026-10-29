@@ -1,0 +1,63 @@
+[
+    {
+        "name": "id",
+        "label": "ID",
+        "type": "text"
+    },
+    {
+        "name": "slug",
+        "label": "Slug",
+        "type": "text"
+    },
+    {
+        "name": "name",
+        "label": "Name",
+        "type": "text"
+    },
+    {
+        "name": "kind",
+        "label": "Kind",
+        "type": "text"
+    },
+    {
+        "name": "description",
+        "label": "Description",
+        "type": "text"
+    },
+    {
+        "name": "tags",
+        "label": "Tags",
+        "type": "array",
+        "spec": {
+            "type": "text"
+        }
+    },
+    {
+        "name": "currentVersion",
+        "label": "Current version",
+        "type": "uinteger"
+    },
+    {
+        "name": "createdAt",
+        "label": "Created at",
+        "type": "date"
+    },
+    {
+        "name": "updatedAt",
+        "label": "Updated at",
+        "type": "date"
+    },
+    {
+        "name": "body",
+        "label": "Body",
+        "type": "text"
+    },
+    {
+        "name": "variables",
+        "label": "Variables",
+        "type": "array",
+        "spec": {
+            "type": "text"
+        }
+    }
+]

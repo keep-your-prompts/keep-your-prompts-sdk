@@ -1,0 +1,19 @@
+{
+    "respond": {
+        "status": 200,
+        "type": "json",
+        "body": {
+            "received": true
+        }
+    },
+    "condition": "{{body.version = 1 && length(body.type) > 0 && length(headers.`webhook-id`) > 0 && length(headers.`webhook-signature`) > 0}}",
+    "output": {
+        "id": "{{body.id}}",
+        "type": "{{body.type}}",
+        "timestamp": "{{body.timestamp}}",
+        "version": "{{body.version}}",
+        "test": "{{ifempty(body.test, false)}}",
+        "workspace": "{{body.workspace}}",
+        "data": "{{body.data}}"
+    }
+}

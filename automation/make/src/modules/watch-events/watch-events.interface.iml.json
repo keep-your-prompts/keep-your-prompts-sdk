@@ -1,0 +1,375 @@
+[
+    {
+        "name": "id",
+        "label": "Event ID",
+        "type": "text"
+    },
+    {
+        "name": "type",
+        "label": "Event type",
+        "type": "text"
+    },
+    {
+        "name": "timestamp",
+        "label": "Occurred at",
+        "type": "date"
+    },
+    {
+        "name": "version",
+        "label": "Payload version",
+        "type": "uinteger"
+    },
+    {
+        "name": "test",
+        "label": "Test event",
+        "type": "boolean"
+    },
+    {
+        "name": "workspace",
+        "label": "Workspace",
+        "type": "collection",
+        "spec": [
+            {
+                "name": "id",
+                "label": "ID",
+                "type": "text"
+            }
+        ]
+    },
+    {
+        "name": "data",
+        "label": "Data",
+        "type": "collection",
+        "spec": [
+            {
+                "name": "prompt",
+                "label": "Prompt",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "slug",
+                        "label": "Slug",
+                        "type": "text"
+                    },
+                    {
+                        "name": "name",
+                        "label": "Name",
+                        "type": "text"
+                    },
+                    {
+                        "name": "kind",
+                        "label": "Kind",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "version",
+                "label": "Version",
+                "type": "uinteger"
+            },
+            {
+                "name": "previousVersion",
+                "label": "Previous version",
+                "type": "uinteger"
+            },
+            {
+                "name": "sha256",
+                "label": "SHA-256",
+                "type": "text"
+            },
+            {
+                "name": "message",
+                "label": "Message",
+                "type": "text"
+            },
+            {
+                "name": "reviewId",
+                "label": "Review ID",
+                "type": "text"
+            },
+            {
+                "name": "app",
+                "label": "App",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "slug",
+                        "label": "Slug",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "env",
+                "label": "Environment",
+                "type": "text"
+            },
+            {
+                "name": "revision",
+                "label": "Revision",
+                "type": "uinteger"
+            },
+            {
+                "name": "toRevision",
+                "label": "To revision",
+                "type": "uinteger"
+            },
+            {
+                "name": "deploymentId",
+                "label": "Deployment ID",
+                "type": "text"
+            },
+            {
+                "name": "prompts",
+                "label": "Prompts",
+                "type": "array",
+                "spec": {
+                    "type": "collection",
+                    "spec": [
+                        {
+                            "name": "name",
+                            "label": "Name",
+                            "type": "text"
+                        },
+                        {
+                            "name": "assetId",
+                            "label": "Prompt ID",
+                            "type": "text"
+                        },
+                        {
+                            "name": "version",
+                            "label": "Version",
+                            "type": "uinteger"
+                        },
+                        {
+                            "name": "sha256",
+                            "label": "SHA-256",
+                            "type": "text"
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "requestId",
+                "label": "Deploy request ID",
+                "type": "text"
+            },
+            {
+                "name": "requiredApprovals",
+                "label": "Required approvals",
+                "type": "uinteger"
+            },
+            {
+                "name": "approvedBy",
+                "label": "Approved by",
+                "type": "array",
+                "spec": {
+                    "type": "text"
+                }
+            },
+            {
+                "name": "review",
+                "label": "Review",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "number",
+                        "label": "Number",
+                        "type": "uinteger"
+                    },
+                    {
+                        "name": "title",
+                        "label": "Title",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "baseVersion",
+                "label": "Base version",
+                "type": "uinteger"
+            },
+            {
+                "name": "headVersion",
+                "label": "Head version",
+                "type": "uinteger"
+            },
+            {
+                "name": "capture",
+                "label": "Capture",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "source",
+                        "label": "Source",
+                        "type": "text"
+                    },
+                    {
+                        "name": "text",
+                        "label": "Text",
+                        "type": "text"
+                    },
+                    {
+                        "name": "truncated",
+                        "label": "Truncated",
+                        "type": "boolean"
+                    },
+                    {
+                        "name": "draft",
+                        "label": "Draft",
+                        "type": "boolean"
+                    },
+                    {
+                        "name": "conversationUrl",
+                        "label": "Conversation URL",
+                        "type": "url"
+                    }
+                ]
+            },
+            {
+                "name": "run",
+                "label": "Eval run",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "status",
+                        "label": "Status",
+                        "type": "text"
+                    },
+                    {
+                        "name": "passRate",
+                        "label": "Pass rate",
+                        "type": "number"
+                    },
+                    {
+                        "name": "costUsd",
+                        "label": "Cost (USD)",
+                        "type": "number"
+                    },
+                    {
+                        "name": "error",
+                        "label": "Error",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "target",
+                "label": "Sync target",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "provider",
+                        "label": "Provider",
+                        "type": "text"
+                    },
+                    {
+                        "name": "name",
+                        "label": "Name",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "status",
+                "label": "Status",
+                "type": "text"
+            },
+            {
+                "name": "error",
+                "label": "Error",
+                "type": "text"
+            },
+            {
+                "name": "metric",
+                "label": "Quota metric",
+                "type": "text"
+            },
+            {
+                "name": "threshold",
+                "label": "Quota threshold",
+                "type": "number"
+            },
+            {
+                "name": "member",
+                "label": "Member",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "userId",
+                        "label": "User ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "name",
+                        "label": "Name",
+                        "type": "text"
+                    },
+                    {
+                        "name": "email",
+                        "label": "Email",
+                        "type": "email"
+                    },
+                    {
+                        "name": "role",
+                        "label": "Role",
+                        "type": "text"
+                    }
+                ]
+            },
+            {
+                "name": "actor",
+                "label": "Actor",
+                "type": "collection",
+                "spec": [
+                    {
+                        "name": "type",
+                        "label": "Type",
+                        "type": "text"
+                    },
+                    {
+                        "name": "id",
+                        "label": "ID",
+                        "type": "text"
+                    },
+                    {
+                        "name": "name",
+                        "label": "Name",
+                        "type": "text"
+                    }
+                ]
+            }
+        ]
+    }
+]

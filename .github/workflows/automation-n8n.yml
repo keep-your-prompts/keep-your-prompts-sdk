@@ -1,0 +1,76 @@
+name: automation-n8n
+
+on:
+  push:
+    branches: [main]
+    tags: ['n8n-v*'] # path filters are not evaluated for tag pushes
+    paths: ['automation/n8n/**', 'automation/test-vectors/**', 'conformance/cases.json', '.github/workflows/automation-n8n.yml']
+  pull_request:
+    paths: ['automation/n8n/**', 'automation/test-vectors/**', 'conformance/cases.json', '.github/workflows/automation-n8n.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automation-n8n-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: automation/n8n
+    shell: bash
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: automation/n8n/package-lock.json
+      - run: npm ci
+      - name: Lint (n8n community node rules)
+        run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Test (shared webhook vectors, conformance render cases, nodes against a fake API)
+        run: npm test
+      - name: Package contents
+        if: matrix.node == 24
+        run: npm pack --dry-run
+
+  publish:
+    name: publish to npm
+    if: startsWith(github.ref, 'refs/tags/n8n-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance, required for n8n verification: no token stored
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: automation/n8n/package-lock.json
+      - name: Check the tag matches the version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "n8n-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != ${version}"; exit 1; }
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@latest
+      - run: npm ci
+      # On GitHub Actions `n8n-node release` lints, builds and runs `npm publish` with provenance (RELEASE_MODE lets
+      # the package's prepublishOnly guard through), the path n8n's starter uses.
+      - name: Publish (trusted publishing, with provenance)
+        run: npm run release

@@ -1,0 +1,37 @@
+[
+    {
+        "label": "Events",
+        "modules": [
+            "watchEvents"
+        ]
+    },
+    {
+        "label": "Prompts",
+        "modules": [
+            "searchPrompts",
+            "getPrompt",
+            "renderPrompt",
+            "createPrompt",
+            "saveVersion"
+        ]
+    },
+    {
+        "label": "Deploys",
+        "modules": [
+            "deploy",
+            "rollback"
+        ]
+    },
+    {
+        "label": "Inbox",
+        "modules": [
+            "createCapture"
+        ]
+    },
+    {
+        "label": "Other",
+        "modules": [
+            "makeApiCall"
+        ]
+    }
+]

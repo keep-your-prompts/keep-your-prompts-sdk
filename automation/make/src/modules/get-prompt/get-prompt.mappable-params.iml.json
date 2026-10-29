@@ -1,0 +1,9 @@
+[
+    {
+        "name": "prompt",
+        "type": "text",
+        "label": "Prompt",
+        "required": true,
+        "help": "The slug (`support-triage`) or ID (`ast_…`) of the prompt."
+    }
+]

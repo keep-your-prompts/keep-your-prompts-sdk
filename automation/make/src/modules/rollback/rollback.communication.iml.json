@@ -1,0 +1,11 @@
+{
+    "url": "/v1/apps/{{encodeURL(parameters.app)}}/rollback",
+    "method": "POST",
+    "body": {
+        "env": "{{parameters.env}}",
+        "toRevision": "{{parameters.toRevision}}"
+    },
+    "response": {
+        "output": "{{body}}"
+    }
+}

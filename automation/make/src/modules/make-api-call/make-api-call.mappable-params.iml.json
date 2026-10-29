@@ -1,0 +1,78 @@
+[
+    {
+        "name": "url",
+        "type": "text",
+        "label": "URL",
+        "required": true,
+        "help": "Path relative to `https://api.keepyourprompts.com/`, for example `v1/apps`."
+    },
+    {
+        "name": "method",
+        "type": "select",
+        "label": "Method",
+        "required": true,
+        "default": "GET",
+        "options": [
+            {
+                "label": "GET",
+                "value": "GET"
+            },
+            {
+                "label": "POST",
+                "value": "POST"
+            },
+            {
+                "label": "PUT",
+                "value": "PUT"
+            },
+            {
+                "label": "PATCH",
+                "value": "PATCH"
+            },
+            {
+                "label": "DELETE",
+                "value": "DELETE"
+            }
+        ]
+    },
+    {
+        "name": "headers",
+        "type": "array",
+        "label": "Headers",
+        "spec": [
+            {
+                "name": "key",
+                "type": "text",
+                "label": "Key"
+            },
+            {
+                "name": "value",
+                "type": "text",
+                "label": "Value"
+            }
+        ]
+    },
+    {
+        "name": "qs",
+        "type": "array",
+        "label": "Query String",
+        "spec": [
+            {
+                "name": "key",
+                "type": "text",
+                "label": "Key"
+            },
+            {
+                "name": "value",
+                "type": "text",
+                "label": "Value"
+            }
+        ]
+    },
+    {
+        "name": "body",
+        "type": "any",
+        "label": "Body",
+        "help": "JSON body; build it with JSON › Create JSON."
+    }
+]

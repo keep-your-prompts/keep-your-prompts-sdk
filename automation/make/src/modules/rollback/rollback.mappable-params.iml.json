@@ -1,0 +1,21 @@
+[
+    {
+        "name": "app",
+        "type": "text",
+        "label": "App",
+        "required": true
+    },
+    {
+        "name": "env",
+        "type": "text",
+        "label": "Environment",
+        "required": true,
+        "default": "prod"
+    },
+    {
+        "name": "toRevision",
+        "type": "uinteger",
+        "label": "To revision",
+        "required": true
+    }
+]

@@ -1,0 +1,214 @@
+{
+    "fileVersion": 1,
+    "generalCodeFiles": {
+        "base": "general/base.iml.json",
+        "common": null,
+        "groups": "modules/groups.json",
+        "readme": "README.md"
+    },
+    "components": {
+        "connection": {
+            "kypApiKey": {
+                "label": "Keep Your Prompts API key",
+                "connectionType": "basic",
+                "codeFiles": {
+                    "communication": "connections/kyp-api-key/kyp-api-key.communication.iml.json",
+                    "params": "connections/kyp-api-key/kyp-api-key.params.iml.json",
+                    "common": null
+                }
+            }
+        },
+        "webhook": {
+            "kypEvents": {
+                "label": "Keep Your Prompts events",
+                "webhookType": "web",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "webhooks/kyp-events/kyp-events.communication.iml.json",
+                    "params": "webhooks/kyp-events/kyp-events.params.iml.json",
+                    "attach": "webhooks/kyp-events/kyp-events.attach.iml.json",
+                    "detach": "webhooks/kyp-events/kyp-events.detach.iml.json",
+                    "update": null,
+                    "requiredScope": null
+                }
+            }
+        },
+        "module": {
+            "watchEvents": {
+                "label": "Watch Events",
+                "description": "Triggers when an event you choose happens in your workspace.",
+                "moduleType": "instant_trigger",
+                "connection": null,
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/watch-events/watch-events.communication.iml.json",
+                    "staticParams": "modules/watch-events/watch-events.static-params.iml.json",
+                    "mappableParams": "modules/watch-events/watch-events.mappable-params.iml.json",
+                    "interface": "modules/watch-events/watch-events.interface.iml.json",
+                    "samples": "modules/watch-events/watch-events.samples.iml.json"
+                },
+                "webhook": "kypEvents"
+            },
+            "searchPrompts": {
+                "label": "Search Prompts",
+                "description": "Searches prompts by meaning and keywords.",
+                "moduleType": "search",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/search-prompts/search-prompts.communication.iml.json",
+                    "staticParams": "modules/search-prompts/search-prompts.static-params.iml.json",
+                    "mappableParams": "modules/search-prompts/search-prompts.mappable-params.iml.json",
+                    "interface": "modules/search-prompts/search-prompts.interface.iml.json",
+                    "samples": "modules/search-prompts/search-prompts.samples.iml.json",
+                    "scope": null
+                }
+            },
+            "getPrompt": {
+                "label": "Get a Prompt",
+                "description": "Gets a prompt with the body of its current version.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/get-prompt/get-prompt.communication.iml.json",
+                    "staticParams": "modules/get-prompt/get-prompt.static-params.iml.json",
+                    "mappableParams": "modules/get-prompt/get-prompt.mappable-params.iml.json",
+                    "interface": "modules/get-prompt/get-prompt.interface.iml.json",
+                    "samples": "modules/get-prompt/get-prompt.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "read"
+            },
+            "renderPrompt": {
+                "label": "Render a Prompt",
+                "description": "Fills in a prompt’s {{variables}} and returns the finished text. Includes are compiled first.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/render-prompt/render-prompt.communication.iml.json",
+                    "staticParams": "modules/render-prompt/render-prompt.static-params.iml.json",
+                    "mappableParams": "modules/render-prompt/render-prompt.mappable-params.iml.json",
+                    "interface": "modules/render-prompt/render-prompt.interface.iml.json",
+                    "samples": "modules/render-prompt/render-prompt.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "read"
+            },
+            "createPrompt": {
+                "label": "Create a Prompt",
+                "description": "Creates a prompt (or skill, agent, snippet…) at version 1.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/create-prompt/create-prompt.communication.iml.json",
+                    "staticParams": "modules/create-prompt/create-prompt.static-params.iml.json",
+                    "mappableParams": "modules/create-prompt/create-prompt.mappable-params.iml.json",
+                    "interface": "modules/create-prompt/create-prompt.interface.iml.json",
+                    "samples": "modules/create-prompt/create-prompt.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "create"
+            },
+            "saveVersion": {
+                "label": "Save a Prompt Version",
+                "description": "Saves a new body as the next version of a prompt.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/save-version/save-version.communication.iml.json",
+                    "staticParams": "modules/save-version/save-version.static-params.iml.json",
+                    "mappableParams": "modules/save-version/save-version.mappable-params.iml.json",
+                    "interface": "modules/save-version/save-version.interface.iml.json",
+                    "samples": "modules/save-version/save-version.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "update"
+            },
+            "deploy": {
+                "label": "Deploy Prompts",
+                "description": "Points an app environment at prompt versions. Environments with an approval rule wait for approvers.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/deploy/deploy.communication.iml.json",
+                    "staticParams": "modules/deploy/deploy.static-params.iml.json",
+                    "mappableParams": "modules/deploy/deploy.mappable-params.iml.json",
+                    "interface": "modules/deploy/deploy.interface.iml.json",
+                    "samples": "modules/deploy/deploy.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "create"
+            },
+            "rollback": {
+                "label": "Roll Back an Environment",
+                "description": "Brings an app environment back to an earlier revision.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/rollback/rollback.communication.iml.json",
+                    "staticParams": "modules/rollback/rollback.static-params.iml.json",
+                    "mappableParams": "modules/rollback/rollback.mappable-params.iml.json",
+                    "interface": "modules/rollback/rollback.interface.iml.json",
+                    "samples": "modules/rollback/rollback.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "update"
+            },
+            "createCapture": {
+                "label": "Capture a Prompt",
+                "description": "Saves text to the inbox, to review and promote to a prompt later.",
+                "moduleType": "action",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/create-capture/create-capture.communication.iml.json",
+                    "staticParams": "modules/create-capture/create-capture.static-params.iml.json",
+                    "mappableParams": "modules/create-capture/create-capture.mappable-params.iml.json",
+                    "interface": "modules/create-capture/create-capture.interface.iml.json",
+                    "samples": "modules/create-capture/create-capture.samples.iml.json",
+                    "scope": null
+                },
+                "actionCrud": "create"
+            },
+            "makeApiCall": {
+                "label": "Make an API Call",
+                "description": "Performs an arbitrary authorized call to the Keep Your Prompts API.",
+                "moduleType": "universal",
+                "connection": "kypApiKey",
+                "altConnection": null,
+                "codeFiles": {
+                    "communication": "modules/make-api-call/make-api-call.communication.iml.json",
+                    "staticParams": "modules/make-api-call/make-api-call.static-params.iml.json",
+                    "mappableParams": "modules/make-api-call/make-api-call.mappable-params.iml.json",
+                    "interface": "modules/make-api-call/make-api-call.interface.iml.json",
+                    "samples": "modules/make-api-call/make-api-call.samples.iml.json",
+                    "scope": null
+                }
+            }
+        },
+        "rpc": {},
+        "function": {
+            "kypRender": {
+                "codeFiles": {
+                    "code": "functions/kyp-render/kyp-render.code.js",
+                    "test": "functions/kyp-render/kyp-render.test.js"
+                }
+            },
+            "kypVerifyWebhook": {
+                "codeFiles": {
+                    "code": "functions/kyp-verify-webhook/kyp-verify-webhook.code.js",
+                    "test": "functions/kyp-verify-webhook/kyp-verify-webhook.test.js"
+                }
+            }
+        },
+        "endpoint": {}
+    },
+    "origins": []
+}
