@@ -63,3 +63,35 @@ jobs:
           cmake -S . -B build-nocurl -G Ninja -DCMAKE_BUILD_TYPE=Release -DKYP_WITH_CURL=OFF
           cmake --build build-nocurl --parallel
           ctest --test-dir build-nocurl --output-on-failure
+
+  # kyp::otel (<kyp/otel.hpp>) against the opentelemetry-cpp SDK and its in-memory exporters.
+  otel:
+    name: otel (ubuntu-latest, g++, opentelemetry-cpp v1.30.0)
+    runs-on: ubuntu-latest
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - name: Install libcurl headers and Ninja
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libcurl4-openssl-dev ninja-build
+      - uses: actions/cache@v4
+        id: otel-cache
+        with:
+          path: ${{ runner.temp }}/otelcpp
+          key: otelcpp-v1.30.0-${{ runner.os }}
+      - name: Build opentelemetry-cpp (API, SDK, in-memory exporters)
+        if: steps.otel-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          git clone --depth 1 --branch v1.30.0 https://github.com/open-telemetry/opentelemetry-cpp.git otelcpp-src
+          cmake -S otelcpp-src -B otelcpp-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+            -DWITH_EXAMPLES=OFF -DWITH_BENCHMARK=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/otelcpp"
+          cmake --build otelcpp-build --parallel
+          cmake --install otelcpp-build
+      - name: Configure with KYP_WITH_OTEL
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKYP_WITH_OTEL=ON -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/otelcpp"
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test (including test_otel)
+        run: ctest --test-dir build --output-on-failure

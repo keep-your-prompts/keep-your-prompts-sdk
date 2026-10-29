@@ -20,10 +20,16 @@ let package = Package(
     platforms: [.iOS(.v15), .macOS(.v12), .tvOS(.v15), .watchOS(.v8), .visionOS(.v1)],
     products: [
         .library(name: "KeepYourPrompts", targets: ["KeepYourPrompts"]),
+        // Optional OpenTelemetry add-on (protocol/tracing.md): kyp.refresh spans, kyp.* metrics, annotate.
+        // KeepYourPrompts itself does not depend on OpenTelemetry.
+        .library(name: "KeepYourPromptsOTel", targets: ["KeepYourPromptsOTel"]),
     ],
     dependencies: [
         // SHA-256 on Linux (Apple platforms use CryptoKit).
         .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
+        // OpenTelemetryApi for KeepYourPromptsOTel only (no dependencies of its own). 2.3.0 is the
+        // newest release whose manifest Swift 5.9/5.10 can read; newer toolchains resolve later 2.x.
+        .package(url: "https://github.com/open-telemetry/opentelemetry-swift-core.git", "2.3.0"..<"3.0.0"),
     ],
     targets: [
         .target(
@@ -32,6 +38,24 @@ let package = Package(
                 .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux, .android, .windows])),
             ],
             path: "swift/Sources/KeepYourPrompts",
+            swiftSettings: swiftSettings
+        ),
+        .target(
+            name: "KeepYourPromptsOTel",
+            dependencies: [
+                "KeepYourPrompts",
+                .product(name: "OpenTelemetryApi", package: "opentelemetry-swift-core"),
+            ],
+            path: "swift/Sources/KeepYourPromptsOTel",
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "KeepYourPromptsOTelTests",
+            dependencies: [
+                "KeepYourPromptsOTel",
+                .product(name: "OpenTelemetrySdk", package: "opentelemetry-swift-core"),
+            ],
+            path: "swift/Tests/KeepYourPromptsOTelTests",
             swiftSettings: swiftSettings
         ),
         .testTarget(

@@ -17,6 +17,8 @@ use KeepYourPrompts\Store\ApcuStore;
 use KeepYourPrompts\Store\FileStore;
 use KeepYourPrompts\Store\MemoryStore;
 use KeepYourPrompts\Store\StateStore;
+use KeepYourPrompts\Telemetry\Observer;
+use KeepYourPrompts\Telemetry\RenderError;
 
 /**
  * Keep Your Prompts client for PHP.
@@ -43,6 +45,8 @@ final class KeepYourPrompts
     private bool $shutdownScheduled = false;
     /** @var list<callable(Update): void> */
     private array $listeners = [];
+    /** @var array<int, Observer> */
+    private array $observers = [];
 
     /**
      * @param Options|array<string, mixed> $options an Options object or a config array (see Options::fromArray)
@@ -54,6 +58,9 @@ final class KeepYourPrompts
         $transport ??= extension_loaded('curl') ? new CurlTransport() : new StreamTransport();
         $this->engine = new Engine($o, $transport, \Closure::fromCallable([$this, 'log']));
         $this->key = $this->engine->key();
+        if ($o->observer !== null) {
+            $this->observers[spl_object_id($o->observer)] = $o->observer;
+        }
         $this->store = $store ?? match ($o->store === 'auto' ? (ApcuStore::available() ? 'apcu' : 'file') : $o->store) {
             'apcu' => new ApcuStore(),
             'memory' => new MemoryStore(),
@@ -110,7 +117,66 @@ final class KeepYourPrompts
      */
     public function render(string $name, array $vars = [], OnMissing $onMissing = OnMissing::Error): string
     {
-        return Template::render($this->find($name)->text, $vars, $onMissing);
+        try {
+            return Template::render($this->find($name)->text, $vars, $onMissing);
+        } catch (NotFound|MissingVariable $e) {
+            $this->renderFailed($name, $e);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Which deployed body $name is: name, version, sha256, app, env, workspace, revision and
+     * the mirror kind that served it (protocol/tracing.md). Memory only.
+     *
+     * @throws NotFound
+     * @throws Unavailable
+     */
+    public function meta(string $name): PromptMeta
+    {
+        $s = $this->state();
+
+        return $this->metaOf($this->findIn($s, $name), $s);
+    }
+
+    /**
+     * render() plus the metadata of the exact body rendered (one consistent state).
+     *
+     * @param array<string, string|int|float|bool|\Stringable|null> $vars
+     *
+     * @throws NotFound
+     * @throws MissingVariable
+     * @throws Unavailable
+     */
+    public function renderWithMeta(string $name, array $vars = [], OnMissing $onMissing = OnMissing::Error): Rendered
+    {
+        $s = $this->state();
+        try {
+            $p = $this->findIn($s, $name);
+
+            return new Rendered(Template::render($p->text, $vars, $onMissing), $this->metaOf($p, $s));
+        } catch (NotFound|MissingVariable $e) {
+            $this->renderFailed($name, $e);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Subscribe to delivery telemetry: refresh rounds run by this process and render errors.
+     * Returns a closure that unsubscribes.
+     *
+     * @return \Closure(): void
+     */
+    public function addObserver(Observer $observer): \Closure
+    {
+        $id = spl_object_id($observer);
+        $this->observers[$id] = $observer;
+
+        return function () use ($id): void {
+            unset($this->observers[$id]);
+        };
     }
 
     /**
@@ -182,6 +248,12 @@ final class KeepYourPrompts
         );
     }
 
+    /** The configuration this client was built with. */
+    public function options(): Options
+    {
+        return $this->options;
+    }
+
     /** The store key of this configuration (to inspect or clear the shared state). */
     public function storeKey(): string
     {
@@ -192,7 +264,11 @@ final class KeepYourPrompts
 
     private function find(string $name): Prompt
     {
-        $s = $this->state();
+        return $this->findIn($this->state(), $name);
+    }
+
+    private function findIn(State $s, string $name): Prompt
+    {
         if (isset($s->prompts[$name])) {
             return $s->prompts[$name];
         }
@@ -231,7 +307,13 @@ final class KeepYourPrompts
             $s = $this->state; // the store was cleared or evicted: keep what we hold
             $this->save($s);
         }
-        $s ??= $this->bootstrap();
+        if ($s === null) {
+            try {
+                $s = $this->bootstrap();
+            } finally {
+                $this->notifyRefreshes();
+            }
+        }
         $this->state = $s;
         $this->loadedAt = $now;
 
@@ -289,7 +371,7 @@ final class KeepYourPrompts
                 return true;
             }
             $s = clone $fresh;
-            [$answered, $update] = $this->engine->round($s, $force);
+            [$answered, $update] = $this->engine->round($s, $force, null, $force ? 'manual' : 'poll');
             $s->checkedAt = microtime(true);
             $this->save($s);
             $this->adopt($s);
@@ -297,6 +379,7 @@ final class KeepYourPrompts
             if ($locked) {
                 $this->store->unlock($this->key);
             }
+            $this->notifyRefreshes();
         }
         if ($update !== null && $update->oldRevision !== 0) {
             foreach ($this->listeners as $cb) {
@@ -309,6 +392,50 @@ final class KeepYourPrompts
         }
 
         return $answered;
+    }
+
+    private function metaOf(Prompt $p, State $s): PromptMeta
+    {
+        return new PromptMeta(
+            $p->name,
+            $p->version,
+            $p->sha256,
+            $this->options->app,
+            $this->options->env,
+            $s->workspace,
+            $s->revision,
+            $this->engine->sourceOf($s->source),
+        );
+    }
+
+    private function renderFailed(string $name, KypException $e): void
+    {
+        if ($this->observers === []) {
+            return;
+        }
+        $error = new RenderError($this->options->app, $this->options->env, $name, $e instanceof MissingVariable ? 'missing_variable' : 'not_found');
+        foreach ($this->observers as $o) {
+            try {
+                $o->onRenderError($error);
+            } catch (\Throwable $t) {
+                $this->log('error', 'observer threw: ' . $t->getMessage());
+            }
+        }
+    }
+
+    /** Hand the finished refresh rounds to the observers (called with no lock held). */
+    private function notifyRefreshes(): void
+    {
+        $records = $this->engine->takeRecords();
+        foreach ($records as $r) {
+            foreach ($this->observers as $o) {
+                try {
+                    $o->onRefresh($r);
+                } catch (\Throwable $t) {
+                    $this->log('error', 'observer threw: ' . $t->getMessage());
+                }
+            }
+        }
     }
 
     private function adopt(State $s): void

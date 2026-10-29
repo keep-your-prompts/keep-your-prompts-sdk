@@ -15,4 +15,9 @@ All notable changes to the Rust SDK (`keepyourprompts`) are documented here. The
 - `include_snapshot!` macro and `Builder::embedded` for snapshots compiled into the binary; `kyp-snapshot` CLI,
   `pull_snapshot` and `embed_module_source`.
 - Template functions `render`, `variables_in`, `sha256_hex`, `parse_manifest`.
+- Observability (`protocol/tracing.md`): `meta` and `render_with_meta` return a `PromptMeta` (`attributes` with the
+  `kyp.*` and `gen_ai.prompt.*` span attributes, `trace_metadata`, `langfuse_metadata`, `langsmith_metadata`); an
+  `Observer` hook (`Builder::observer`, `add_observer`) receives a `RefreshRecord` per refresh round and render
+  errors; feature `otel` (`kyp::otel`, on the `opentelemetry` API crate) records `kyp.refresh` spans with events, the
+  `kyp.*` metrics and annotates LLM spans, with content capture off by default.
 - Conformance tests (all 12 required behaviours) against an in-process fake and `conformance/fake_cdn.py`.

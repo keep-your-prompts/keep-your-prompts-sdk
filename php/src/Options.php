@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KeepYourPrompts;
 
 use KeepYourPrompts\Exception\KypException;
+use KeepYourPrompts\Telemetry\Observer;
 
 /**
  * Client configuration. Only $app is required; everything else has a default.
@@ -56,6 +57,8 @@ final class Options
         public readonly string $userAgent = 'kyp-php/' . self::VERSION,
         public readonly ?\Closure $logger = null,
         public readonly string $logLevel = 'warn',
+        /** Delivery telemetry hook (protocol/tracing.md); the OpenTelemetry add-on provides one. */
+        public readonly ?Observer $observer = null,
     ) {
         if (!Manifest::isSlug($app)) {
             throw new KypException(sprintf('kyp: app must be a slug like "support-bot" (got "%s"); set KYP_APP', $app));
@@ -188,6 +191,7 @@ final class Options
             userAgent: $str('user_agent') ?? 'kyp-php/' . self::VERSION,
             logger: $logger instanceof \Closure ? $logger : (is_callable($logger) ? \Closure::fromCallable($logger) : null),
             logLevel: $logLevel,
+            observer: ($c['observer'] ?? null) instanceof Observer ? $c['observer'] : null,
         );
     }
 

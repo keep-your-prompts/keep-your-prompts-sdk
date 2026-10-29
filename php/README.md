@@ -164,6 +164,7 @@ Then autowire `KeepYourPrompts $prompts` into controllers and services. Its PSR-
 | `userAgent` / `user_agent` | `kyp-php/0.1.0` | |
 | `logger` / `logger` | `error_log()`: `fn (string $level, string $message) => ...` | |
 | `logLevel` / `log_level` | `warn` | `KYP_LOG=debug\|info\|warn\|error\|off` |
+| `observer` / `observer` | none; a `Telemetry\Observer`, see [Observability](#observability) | |
 
 `mirrors` replaces the defaults with your own ordered list of `Mirror::file($dir, $name)` and `Mirror::http($baseUrl, $name, $bearerToken)`; the disk cache still applies. To send the delivery key as a header to the origin instead of in the path: `Mirror::http('https://api.keepyourprompts.com/v1/delivery', 'origin', $key)`. The delivery key never appears in logs, exceptions or `status()` (shortened to `kypd_Ab3d...`).
 
@@ -181,6 +182,67 @@ Every copy of your prompts uses the same layout (`envs/<app>/<env>.json`, `blobs
 
 Start-up reads the local mirrors (1, 2) and keeps the highest revision; revalidation asks 3 to 5 in order and stops at the first that answers. Every blob is checked with SHA-256 wherever it came from, a manifest with a lower revision than the one held is ignored, and a manifest for another app/env or with a schema other than 1 is rejected. With no network mirror configured the snapshot folder itself is polled, so a folder kept current by `git pull` or a sidecar is picked up live. The disk cache uses the same layout as the other SDKs (`<cacheDir>/<workspace>/<app>/<env>/`), so PHP and, say, a Python worker can share one directory.
 
+## Observability
+
+The SDK reports which prompt version each LLM call used and how delivery is doing, with the attribute, span and
+metric names of [`protocol/tracing.md`](../protocol/tracing.md), the same in every SDK. The core needs nothing; the
+OpenTelemetry add-on needs `open-telemetry/api` (suggested, not required).
+
+**Prompt metadata** (memory only, no content):
+
+```php
+$r = $prompts->renderWithMeta('triage', ['company' => 'Acme']);
+$r->text;                    // the rendered prompt
+$r->meta->attributes();      // ['kyp.prompt.name' => 'triage', 'kyp.prompt.version' => 7, 'kyp.prompt.sha256' => '...',
+                             //  'kyp.app' => ..., 'kyp.env' => ..., 'kyp.revision' => 42, 'kyp.workspace' => ..., 'kyp.source' => 'cdn',
+                             //  'gen_ai.prompt.name' => 'triage', 'gen_ai.prompt.version' => '7']
+$r->meta->traceMetadata();   // flat keys: ['kyp_prompt_name' => 'triage', 'kyp_prompt_version' => 7, ...]
+```
+
+`langfuseMetadata()` and `langsmithMetadata()` return the same flat map, for a Langfuse observation's `metadata` or
+LangSmith run metadata (or as `Helicone-Property-<key>` headers). `kyp.source` is the mirror kind: `snapshot`,
+`cache`, `cdn`, `origin`, `git` or `custom`.
+
+**OpenTelemetry** (optional): `composer require open-telemetry/api` (your app usually has `open-telemetry/sdk`
+already), then
+
+```php
+use KeepYourPrompts\OpenTelemetry\Instrumentation;
+
+$otel = Instrumentation::create();                                    // global tracer/meter providers
+$prompts = new KeepYourPrompts(new Options(app: 'support-bot', deliveryKey: $key, observer: $otel));
+$otel->attach($prompts);                                              // or Instrumentation::instrument($prompts)
+
+$r = $prompts->renderWithMeta('triage', ['company' => 'Acme']);
+$otel->annotate($r);                                                  // kyp.* + gen_ai.prompt.* on the active span
+```
+
+- `annotate(string|PromptMeta|Rendered $prompt, ?SpanInterface $span = null, ?array $variables = null, ?bool $captureContent = null)`
+  annotates the active span (or `$span`) and returns the `PromptMeta`; a span that is not recording is left alone.
+  `Instrumentation::annotateSpan($meta, $span, ...)` does the same without a client.
+- The instrumentation records a `kyp.refresh` span for each refresh round this process runs (start-up load, due
+  revalidation, `refresh()`; a manual refresh is a child of the active span) with `kyp.fallback`,
+  `kyp.hash_mismatch` and `kyp.update` events, and the metrics `kyp.refresh.duration`, `kyp.fallbacks`,
+  `kyp.hash_mismatches`, `kyp.render.errors` and the gauges `kyp.staleness` and `kyp.revision`, under the
+  instrumentation scope `keepyourprompts`. In PHP most requests only read the shared store, so most requests record
+  no refresh span at all; rounds that only confirmed what is held are counted but not traced unless
+  `traceAllRefreshes: true`.
+- Options of `create()` / `instrument()`: `tracerProvider`, `meterProvider` (default: `Globals`), `captureContent`
+  (default `false`), `genAiAttributes` (default `true`), `openInference` (default `false`: `prompt.vendor`,
+  `prompt.id`, `llm.prompt_template.*`), `traceAllRefreshes` (default `false`). `shutdown()` stops it.
+
+**Content capture is off by default.** With `captureContent: true` (or `KYP_OTEL_CAPTURE_CONTENT=true`),
+`annotate()` also records the raw template as `kyp.prompt.template` and each variable passed as
+`gen_ai.prompt.variable.<name>`. Templates can hold proprietary instructions and variables often hold personal data,
+customer content or secrets; with capture on they reach every exporter and backend of your OpenTelemetry pipeline
+and stay there under its retention. Turn it on only where that is acceptable. SDK spans and metrics never carry
+content.
+
+**Without OpenTelemetry**, implement `KeepYourPrompts\Telemetry\Observer` (`onRefresh(RefreshRecord)`,
+`onRenderError(RenderError)`) and pass it as `observer` or to `addObserver()`. A `RefreshRecord` has `trigger`,
+`result`, `startTime`, `duration`, `mirror`, `source`, `revision`, `previousRevision`, `workspace`, `error`,
+`errorType` and `events`. Observers run after the store lock is released; one that throws is logged and ignored.
+
 ## Snapshots
 
 `kyp pull --app support-bot --env prod --out ./prompts` writes a complete mirror to a folder. Commit it or bake it into the image and set `KYP_SNAPSHOT_DIR=./prompts`: a fresh server then answers its first request with zero network, and upgrades within one poll interval once a network mirror answers.
@@ -195,6 +257,10 @@ Start-up reads the local mirrors (1, 2) and keeps the highest revision; revalida
 | `tryGet(string $name): ?string`, `has(string $name): bool` | |
 | `prompt(string $name): Prompt` | `name`, `version`, `sha256`, `variables`, `text`, `render(array $vars)`. |
 | `render(string $name, array $vars = [], OnMissing $onMissing = OnMissing::Error): string` | `OnMissing::Keep` leaves `{{name}}`, `OnMissing::Empty` drops it. Throws `MissingVariable` (`->names`). |
+| `meta(string $name): PromptMeta` | Which body is held: `name`, `version`, `sha256`, `app`, `env`, `workspace`, `revision`, `source`; `attributes()`, `traceMetadata()`, `langfuseMetadata()`, `langsmithMetadata()`. Throws `NotFound`. |
+| `renderWithMeta(string $name, array $vars = [], OnMissing $onMissing = OnMissing::Error): Rendered` | `->text` and `->meta` of the exact body rendered. |
+| `addObserver(Telemetry\Observer $observer): Closure` | Delivery telemetry; call the returned closure to unsubscribe. |
+| `options(): Options` | |
 | `names(): list<string>`, `revision(): int` | |
 | `onUpdate(callable(Update): void): self` | Called in the process that swapped in a new revision (`oldRevision`, `newRevision`, `source`, `changed`). Exceptions are caught and logged. |
 | `refresh(): bool` | Revalidate now, ignoring the interval and backoff. `true` if a mirror answered. |

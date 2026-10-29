@@ -13,6 +13,8 @@ let text = try prompts.render("triage", ["company": "Acme", "billing_queue": "re
 - iOS 15, macOS 12, tvOS 15, watchOS 8, visionOS 1, and Linux.
 - Dependencies: none on Apple platforms (Foundation, `URLSession`, CryptoKit). On Linux: [swift-crypto](https://github.com/apple/swift-crypto) for SHA-256 and FoundationNetworking.
 - Implements [prompt delivery protocol v1](../protocol/README.md) and passes the shared [conformance suite](../conformance/README.md).
+- Optional product `KeepYourPromptsOTel` for OpenTelemetry (see [Observability](#observability)); `KeepYourPrompts`
+  itself never imports it.
 
 ## Install
 
@@ -111,6 +113,7 @@ Four independent copies (the app's, Cloudflare's, ours, GitHub's), any one of wh
 | `userAgent` | `kyp-swift/0.1.0` | |
 | `onUpdate` | `nil` | |
 | `logger` / `logLevel` | standard error / `.warn` | `KYP_LOG=debug\|info\|warn\|error\|off` |
+| `observers` | `[]`; delivery telemetry, see [Observability](#observability) | |
 
 The delivery key never appears in logs, errors or `status()` (shortened to `kypd_Ab3d...`).
 
@@ -121,6 +124,8 @@ The delivery key never appears in logs, errors or `status()` (shortened to `kypd
 | `init(_ options: Options) async throws`, `init(app:env:deliveryKey:cacheDirectory:bundle:onUpdate:) async throws`, `static fromEnvironment(_:) async throws` | Load and start refreshing. |
 | `get(_:) -> String?`, `contains(_:)`, `prompt(_:) -> Prompt?`, `names`, `revision` | Memory-only reads. |
 | `render(_:_:onMissing:) throws -> String` | `{{name}}` substitution; `.error` (default), `.keep`, `.empty`. |
+| `meta(_:) throws -> PromptMeta`, `renderWithMeta(_:_:onMissing:) throws -> Rendered` | Which body is held / was rendered: `name`, `version`, `sha256`, `app`, `env`, `workspace`, `revision`, `source`; `attributes()`, `traceMetadata()`, `langfuseMetadata()`, `langsmithMetadata()`. |
+| `addObserver(_:) -> ObserverToken`, `removeObserver(_:)` | Delivery telemetry. |
 | `status() -> Status` | `ready`, `source`, `revision`, `workspace`, `deployedAt`, `promptCount`, `lastSuccess`, `lastError`, `staleFor`, `mirrors`. |
 | `updates: AsyncStream<Update>` | `oldRevision`, `newRevision`, `source`, `changed`. |
 | `refresh() async -> Bool`, `close()` | |
@@ -128,12 +133,86 @@ The delivery key never appears in logs, errors or `status()` (shortened to `kypd
 
 Errors: `KYPError.notFound`, `.missingVariables([String])`, `.unavailable`, `.protocolError`, `.invalidConfiguration`.
 
+## Observability
+
+The SDK reports which prompt version each LLM call used and how delivery is doing, with the attribute, span and
+metric names of [`protocol/tracing.md`](../protocol/tracing.md), the same in every SDK.
+
+**Prompt metadata** (memory only, no content):
+
+```swift
+let r = try prompts.renderWithMeta("triage", ["company": "Acme"])
+r.text                      // the rendered prompt
+r.meta.attributes()         // ["kyp.prompt.name": "triage", "kyp.prompt.version": 7, "kyp.prompt.sha256": ..., "kyp.app": ...,
+                            //  "kyp.env": ..., "kyp.revision": 42, "kyp.workspace": ..., "kyp.source": "cdn",
+                            //  "gen_ai.prompt.name": "triage", "gen_ai.prompt.version": "7"]
+r.meta.traceMetadata()      // flat keys: ["kyp_prompt_name": "triage", "kyp_prompt_version": 7, ...]
+```
+
+Values are `TelemetryValue` (`.string` / `.int`, `Codable`). `langfuseMetadata()` and `langsmithMetadata()` return
+the same flat map (Langfuse observation metadata, LangSmith run metadata, `Helicone-Property-<key>` headers).
+`kyp.source` is the mirror kind: `embedded`, `snapshot`, `cache`, `cdn`, `origin`, `git` or `custom`.
+
+**OpenTelemetry**: add the product `KeepYourPromptsOTel` (it depends on `OpenTelemetryApi` from
+[opentelemetry-swift-core](https://github.com/open-telemetry/opentelemetry-swift-core); your app sets up the SDK and
+exporters):
+
+```swift
+.target(name: "MyApp", dependencies: [
+    .product(name: "KeepYourPrompts", package: "keep-your-prompts-sdk"),
+    .product(name: "KeepYourPromptsOTel", package: "keep-your-prompts-sdk"),
+])
+```
+
+```swift
+import KeepYourPromptsOTel
+
+let otel = KYPInstrumentation()                    // the registered tracer/meter providers
+var options = Options.fromEnvironment()
+options.observers = [otel]                         // so the start-up round is traced too
+let prompts = try await KeepYourPrompts(options)
+otel.attach(prompts)                               // kyp.staleness / kyp.revision gauges, annotate by name
+
+let r = try prompts.renderWithMeta("triage", ["company": "Acme"])
+otel.annotate(r)                                   // kyp.* + gen_ai.prompt.* on the active span
+```
+
+- `annotate` takes a name (`throws` for an unknown one), a `PromptMeta` or a `Rendered`, annotates the active span
+  (or `span:`) and returns the `PromptMeta`; a span that is not recording is left alone.
+  `KYPInstrumentation.annotate(meta, span:...)` does the same without a client.
+- The instrumentation records a `kyp.refresh` span per refresh round (start-up, poll, `refresh()`; a manual
+  refresh is a child of the active span) with `kyp.fallback`, `kyp.hash_mismatch` and `kyp.update` events, and the
+  metrics `kyp.refresh.duration`, `kyp.fallbacks`, `kyp.hash_mismatches`, `kyp.render.errors` and the gauges
+  `kyp.staleness` and `kyp.revision`, under the instrumentation scope `keepyourprompts`. Rounds that only confirmed
+  what is held (the 30-second heartbeat) are counted but not traced unless `traceAllRefreshes`.
+- `KYPInstrumentation.Settings`: `captureContent` (default off, or `KYP_OTEL_CAPTURE_CONTENT`), `genAIAttributes`
+  (default `true`), `openInference` (default `false`: `prompt.vendor`, `prompt.id`, `llm.prompt_template.*`),
+  `traceAllRefreshes` (default `false`). `shutdown()` stops it.
+- The OpenTelemetry Swift metrics API has no units on instrument builders, so the instruments carry none;
+  `kyp.revision` is a double gauge (the Swift SDK reports observable long gauges as 0).
+
+**Content capture is off by default.** With `captureContent: true` (or `KYP_OTEL_CAPTURE_CONTENT=true`),
+`annotate` also records the raw template as `kyp.prompt.template` and each variable passed as
+`gen_ai.prompt.variable.<name>`. Templates can hold proprietary instructions and variables often hold personal data,
+customer content or secrets; with capture on they reach every exporter and backend of your OpenTelemetry pipeline
+and stay there under its retention. Turn it on only where that is acceptable. SDK spans and metrics never carry
+content.
+
+**Without OpenTelemetry**, conform to `TelemetryObserver` (`onRefresh(_: RefreshRecord)`, `onRenderError(_:)`,
+both optional) and pass it in `Options.observers` or to `addObserver`. A `RefreshRecord` has `trigger`, `result`,
+`startTime`, `duration`, `mirror`, `source`, `revision`, `previousRevision`, `workspace`, `error`, `errorType` and
+`events`. Observers run outside the client's locks.
+
 ## Tests
 
 ```sh
 swift test                                   # from the repository root (macOS or Linux)
 KYP_SWIFT6=1 KYP_WERROR=1 swift test             # Swift 6 language mode, warnings as errors
 ```
+
+`KeepYourPromptsOTelTests` runs the OpenTelemetry add-on against the OpenTelemetry Swift SDK with in-memory
+exporters. The SDK takes a `TRACEPARENT` environment variable as the parent of every span: unset it when running
+the tests from inside a traced process.
 
 The conformance tests run every `conformance/cases.json` case and the 12 required behaviours against an in-process HTTP fake, and again against `conformance/fake_cdn.py` when `python3` is on the `PATH`. On Linux (Swift 6.2, release build) a `get` takes about 90 ns and a two-variable `render` about 480 ns.
 

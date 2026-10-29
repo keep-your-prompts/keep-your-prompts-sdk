@@ -61,6 +61,7 @@ struct MirrorRt {
   Mirror cfg;
   MirrorKind kind = MirrorKind::file;
   std::string shown_url;
+  std::string source;  // kyp.source
   // Guarded by Engine::refresh_mu.
   std::string etag;
   // Guarded by Engine::status_mu.
@@ -90,6 +91,16 @@ struct Engine {
   std::string last_error;
   std::string source;
 
+  // --- telemetry (protocol/tracing.md) ---
+  std::atomic<std::size_t> source_idx{SIZE_MAX};  // mirror that served or last confirmed the state
+  mutable std::mutex obs_mu;
+  std::vector<std::pair<ObserverId, std::shared_ptr<Observer>>> observers;
+  std::atomic<bool> has_observers{false};
+  ObserverId next_observer = 1;
+  std::vector<TelemetryEvent> events;  // span events of the round in progress; guarded by refresh_mu
+  std::mutex records_mu;
+  std::vector<RefreshRecord> records;  // finished rounds not yet handed to the observers
+
   explicit Engine(Options opts, bool for_snapshot = false) : o(std::move(opts)) {
     if (o.app_.empty()) throw Error("kyp: app is not set (Options::app or KYP_APP)");
     if (!is_slug(o.app_)) throw Error("kyp: app \"" + o.app_ + "\" is not a slug ([a-z0-9][a-z0-9-]{0,62})");
@@ -105,9 +116,16 @@ struct Engine {
       o.cache_dir_.clear();
     }
 
+    for (auto& ob : o.observers_)
+      if (ob) observers.emplace_back(next_observer++, ob);
+    has_observers.store(!observers.empty());
     auto add = [&](Mirror m, MirrorKind kind) {
       MirrorRt r;
       r.kind = kind;
+      r.source = normalize_source(m.name, kind == MirrorKind::embedded ? "embedded"
+                                          : kind == MirrorKind::file   ? "file"
+                                          : kind == MirrorKind::cache  ? "cache"
+                                                                       : "http");
       r.shown_url = redact(m.url, o.delivery_key_);
       r.cfg = std::move(m);
       mirrors.push_back(std::move(r));
@@ -168,6 +186,9 @@ struct Engine {
   bool has_on_update() const { return static_cast<bool>(o.on_update_); }
   void call_on_update(const Update& u) const { o.on_update_(u); }
 
+  const std::string& app_name() const { return o.app_; }
+  std::string redact_key(const std::string& s) const { return redact(s, o.delivery_key_); }
+  const std::string& env_name() const { return o.env_; }
   std::string manifest_path() const { return "envs/" + o.app_ + "/" + o.env_ + ".json"; }
   std::string what() const { return o.app_ + "/" + o.env_; }
 
@@ -275,6 +296,8 @@ struct Engine {
       }
       if (sha256_hex(r.body) != sha) {
         std::string msg = "blob " + sha.substr(0, 12) + " failed sha256 verification";
+        event("kyp.hash_mismatch",
+              {{"kyp.mirror", mirrors[i].cfg.name}, {"kyp.source", mirrors[i].source}, {"kyp.blob.sha256", sha}});
         log(LogLevel::warn, mirrors[i].cfg.name + ": " + msg + " (discarded)");
         errors += mirrors[i].cfg.name + ": " + msg + "; ";
         continue;
@@ -368,6 +391,46 @@ struct Engine {
     out.state = std::move(st);
     out.etag = r.etag;
     return Outcome::updated;
+  }
+
+  // --- telemetry ---------------------------------------------------------------
+  void event(const char* name, Attributes attrs) {
+    if (has_observers.load(std::memory_order_relaxed))
+      events.push_back(TelemetryEvent{name, sysclock::now(), std::move(attrs)});
+  }
+
+  void fallback(std::size_t mi, const std::string& err) {
+    event("kyp.fallback", {{"kyp.mirror", mirrors[mi].cfg.name},
+                           {"kyp.source", mirrors[mi].source},
+                           {"error.type", classify_error(err)},
+                           {"kyp.error", redact(err, o.delivery_key_)}});
+  }
+
+  template <typename Fn>
+  void each_observer(Fn&& fn) {
+    std::vector<std::shared_ptr<Observer>> obs;
+    {
+      std::lock_guard<std::mutex> lk(obs_mu);
+      for (auto& p : observers) obs.push_back(p.second);
+    }
+    for (auto& ob : obs) {
+      try {
+        fn(*ob);
+      } catch (const std::exception& e) {
+        log(LogLevel::error, std::string("observer threw: ") + e.what());
+      } catch (...) {
+        log(LogLevel::error, "observer threw");
+      }
+    }
+  }
+
+  void deliver_records() {
+    std::vector<RefreshRecord> todo;
+    {
+      std::lock_guard<std::mutex> lk(records_mu);
+      todo.swap(records);
+    }
+    for (const RefreshRecord& r : todo) each_observer([&](Observer& ob) { ob.on_refresh(r); });
   }
 
   // --- disk cache ----------------------------------------------------------
@@ -471,6 +534,7 @@ struct Client::Impl : detail::Engine {
         startup_from_network();
       }
     }
+    deliver_records();
     if (!polled.empty()) thread_ = std::thread([this, loaded_locally] { run(loaded_locally || !load()); });
   }
 
@@ -508,6 +572,20 @@ struct Client::Impl : detail::Engine {
       std::lock_guard<std::mutex> lk(status_mu);
       source = mirrors[mi].cfg.name;
     }
+    source_idx.store(mi, std::memory_order_release);
+    if (has_observers.load(std::memory_order_relaxed)) {
+      std::int64_t changed = 0;
+      for (const Prompt& p : st->prompts) {
+        auto it = old ? old->index.find(p.name) : decltype(st->index)::const_iterator{};
+        if (!old || it == old->index.end() || it->second->sha256 != p.sha256) ++changed;
+      }
+      if (old)
+        for (const Prompt& p : old->prompts)
+          if (!st->index.count(p.name)) ++changed;
+      event("kyp.update", {{"kyp.revision.previous", old ? old->manifest.revision : std::int64_t{0}},
+                           {"kyp.revision", st->manifest.revision},
+                           {"kyp.prompts.changed", changed}});
+    }
     log(LogLevel::info, "loaded " + what() + " revision " + std::to_string(st->manifest.revision) + " (" +
                             std::to_string(st->prompts.size()) + " prompts) from " + mirrors[mi].cfg.name);
     if (notify && has_on_update()) {
@@ -532,6 +610,7 @@ struct Client::Impl : detail::Engine {
   }
 
   void deliver_updates() {
+    deliver_records();
     std::vector<Update> todo;
     {
       std::lock_guard<std::mutex> lk(pending_mu_);
@@ -552,11 +631,16 @@ struct Client::Impl : detail::Engine {
   // highest revision wins; ties go to the earlier mirror.
   void load_local() {
     std::lock_guard<std::mutex> lk(refresh_mu);
+    auto started = std::make_pair(sysclock::now(), steady::now());
+    events.clear();
     locate_cache();
     std::shared_ptr<State> best;
     std::size_t best_mi = 0;
+    bool any_local = false;
+    std::string errs;
     for (std::size_t mi = 0; mi < mirrors.size(); ++mi) {
       if (mirrors[mi].kind == detail::MirrorKind::http) continue;
+      any_local = true;
       Candidate c;
       std::string err;
       Outcome oc = try_mirror(mi, best.get(), false, steady::time_point::max(), c, err);
@@ -565,12 +649,57 @@ struct Client::Impl : detail::Engine {
         best_mi = mi;
       } else if (oc == Outcome::failed && !c.missing) {
         record_fail(mi, err, false);
+        fallback(mi, err);
+        errs += (errs.empty() ? "" : "; ") + mirrors[mi].cfg.name + ": " + err;
       }
     }
     if (best) {
       install(best, best_mi, false);
       if (best_mi != cache_idx.value_or(SIZE_MAX)) write_cache(*best);
     }
+    // Only a round when there was something local to read.
+    if (any_local)
+      finish_record(RefreshTrigger::start, started, best ? best_mi : SIZE_MAX, static_cast<bool>(best), 0,
+                    errs.empty() ? "no local copy" : errs);
+    else
+      events.clear();
+  }
+
+  // Called with refresh_mu held, at the end of a round.
+  void finish_record(RefreshTrigger trigger, std::pair<sysclock::time_point, steady::time_point> started,
+                     std::size_t answered_by, bool updated, std::int64_t previous, const std::string& error) {
+    std::vector<TelemetryEvent> evs;
+    evs.swap(events);
+    if (!has_observers.load(std::memory_order_relaxed)) return;
+    auto st = load();
+    bool failed = answered_by == SIZE_MAX;
+    RefreshRecord r;
+    r.app = app_name();
+    r.env = env_name();
+    r.trigger = trigger;
+    r.result = failed ? RefreshResult::failed : updated ? RefreshResult::updated : RefreshResult::not_modified;
+    r.start_time = started.first;
+    r.duration = std::chrono::duration_cast<std::chrono::nanoseconds>(steady::now() - started.second);
+    if (!failed) {
+      r.mirror = mirrors[answered_by].cfg.name;
+      r.source = mirrors[answered_by].source;
+    }
+    r.revision = st ? st->manifest.revision : 0;
+    r.previous_revision = previous;
+    r.workspace = st ? st->manifest.workspace : std::string();
+    if (failed) {
+      r.error = redact_key(error);
+      r.error_type = classify_error(error);
+      for (auto it = evs.rbegin(); it != evs.rend(); ++it)
+        if (it->name == "kyp.fallback") {
+          if (const AttrValue* t = it->attr("error.type")) r.error_type = to_string(*t);
+          break;
+        }
+    }
+    r.events = std::move(evs);
+    std::lock_guard<std::mutex> lk(records_mu);
+    records.push_back(std::move(r));
+    if (records.size() > 64) records.erase(records.begin());  // bounded if nothing drains it
   }
 
   // Start-up step 2: nothing local, so block on the network up to startup_timeout.
@@ -580,7 +709,7 @@ struct Client::Impl : detail::Engine {
     while (!load()) {
       {
         std::lock_guard<std::mutex> lk(refresh_mu);
-        round(true, deadline);
+        round(true, deadline, RefreshTrigger::start);
       }
       if (load() || steady::now() + delay >= deadline) break;
       std::this_thread::sleep_for(delay);
@@ -603,10 +732,14 @@ struct Client::Impl : detail::Engine {
   }
 
   // One refresh round over the polled mirrors, in order. Caller holds refresh_mu.
-  bool round(bool ignore_backoff, steady::time_point dl) {
+  bool round(bool ignore_backoff, steady::time_point dl, RefreshTrigger trigger) {
+    auto started = std::make_pair(sysclock::now(), steady::now());
+    events.clear();
     std::shared_ptr<const State> cur = load();
     std::vector<std::string> errs;
     std::vector<std::size_t> skipped;
+    std::size_t answered_by = SIZE_MAX;
+    bool updated = false;
     auto attempt = [&](std::size_t mi) {
       Candidate c;
       std::string err;
@@ -618,21 +751,29 @@ struct Client::Impl : detail::Engine {
           install(c.state, mi, true);
           write_cache(*c.state);
           record_ok(mi);
+          answered_by = mi;
+          updated = true;
           return true;
         case Outcome::unchanged: {
           mirrors[mi].etag = c.etag;
           record_ok(mi);
+          answered_by = mi;
           std::lock_guard<std::mutex> lk(status_mu);
-          if (cur) source = name;
+          if (cur) {
+            source = name;
+            source_idx.store(mi, std::memory_order_release);
+          }
           return true;
         }
         case Outcome::stale:
           errs.push_back(name + ": " + err);
           record_fail(mi, err, false);
+          fallback(mi, err);
           return false;
         case Outcome::failed:
           errs.push_back(name + ": " + err);
           record_fail(mi, err, true);
+          fallback(mi, err);
           return false;
       }
       return false;
@@ -660,6 +801,8 @@ struct Client::Impl : detail::Engine {
       last_error = (!answered && joined.empty()) ? "all mirrors backing off" : joined;
     }
     if (!answered && !stop.load()) log(LogLevel::warn, "refresh failed, serving what is held: " + joined);
+    finish_record(trigger, started, answered_by, updated, cur ? cur->manifest.revision : 0,
+                  (!answered && joined.empty()) ? "all mirrors backing off" : joined);
     return answered;
   }
 
@@ -678,7 +821,7 @@ struct Client::Impl : detail::Engine {
       {
         std::lock_guard<std::mutex> lk(refresh_mu);
         try {
-          round(false, steady::time_point::max());
+          round(false, steady::time_point::max(), RefreshTrigger::poll);
         } catch (const std::exception& e) {
           log(LogLevel::error, std::string("refresh error: ") + e.what());
         }
@@ -687,14 +830,37 @@ struct Client::Impl : detail::Engine {
     }
   }
 
-  const Prompt& find(std::string_view name) const {
-    const State* s = current();
+  const Prompt& find(std::string_view name) const { return find_in(current(), name); }
+
+  const Prompt& find_in(const State* s, std::string_view name) const {
     if (s) {
       auto it = s->index.find(name);
       if (it != s->index.end()) return *it->second;
     }
     throw NotFound(std::string(name), s ? what() + " revision " + std::to_string(s->manifest.revision)
                                         : "nothing loaded for " + what());
+  }
+
+  PromptMeta meta_of(const Prompt& p, const State* s) const {
+    PromptMeta m;
+    m.name = p.name;
+    m.version = p.version;
+    m.sha256 = p.sha256;
+    m.app = app_name();
+    m.env = env_name();
+    if (s) {
+      m.workspace = s->manifest.workspace;
+      m.revision = s->manifest.revision;
+    }
+    std::size_t si = source_idx.load(std::memory_order_acquire);
+    if (si < mirrors.size()) m.source = mirrors[si].source;
+    return m;
+  }
+
+  void render_failed(std::string_view name, const char* error_type) {
+    if (!has_observers.load(std::memory_order_relaxed)) return;
+    RenderError e{app_name(), env_name(), std::string(name), error_type};
+    each_observer([&](Observer& ob) { ob.on_render_error(e); });
   }
 };
 
@@ -758,8 +924,56 @@ bool Client::contains(std::string_view name) const {
 Prompt Client::prompt(std::string_view name) const { return impl_->find(name); }
 
 std::string Client::render(std::string_view name, const Vars& vars, OnMissing on_missing) const {
-  return ::kyp::render(impl_->find(name).text, vars, on_missing);
+  try {
+    return ::kyp::render(impl_->find(name).text, vars, on_missing);
+  } catch (const NotFound&) {
+    impl_->render_failed(name, "not_found");
+    throw;
+  } catch (const MissingVariable&) {
+    impl_->render_failed(name, "missing_variable");
+    throw;
+  }
 }
+
+PromptMeta Client::meta(std::string_view name) const {
+  const detail::State* s = impl_->current();
+  return impl_->meta_of(impl_->find_in(s, name), s);
+}
+
+Rendered Client::render_with_meta(std::string_view name, const Vars& vars, OnMissing on_missing) const {
+  const detail::State* s = impl_->current();
+  try {
+    const Prompt& p = impl_->find_in(s, name);
+    std::string text = ::kyp::render(p.text, vars, on_missing);
+    return Rendered{std::move(text), impl_->meta_of(p, s)};
+  } catch (const NotFound&) {
+    impl_->render_failed(name, "not_found");
+    throw;
+  } catch (const MissingVariable&) {
+    impl_->render_failed(name, "missing_variable");
+    throw;
+  }
+}
+
+ObserverId Client::add_observer(std::shared_ptr<Observer> observer) {
+  std::lock_guard<std::mutex> lk(impl_->obs_mu);
+  ObserverId id = impl_->next_observer++;
+  impl_->observers.emplace_back(id, std::move(observer));
+  impl_->has_observers.store(true);
+  return id;
+}
+
+bool Client::remove_observer(ObserverId id) {
+  std::lock_guard<std::mutex> lk(impl_->obs_mu);
+  auto& v = impl_->observers;
+  auto n = v.size();
+  v.erase(std::remove_if(v.begin(), v.end(), [&](const auto& p) { return p.first == id; }), v.end());
+  impl_->has_observers.store(!v.empty());
+  return v.size() != n;
+}
+
+const std::string& Client::app() const { return impl_->app_name(); }
+const std::string& Client::env() const { return impl_->env_name(); }
 
 std::vector<std::string> Client::names() const {
   std::vector<std::string> out;
@@ -799,7 +1013,7 @@ bool Client::refresh_now() {
   bool ok;
   {
     std::lock_guard<std::mutex> lk(impl_->refresh_mu);
-    ok = impl_->round(true, steady::time_point::max());
+    ok = impl_->round(true, steady::time_point::max(), RefreshTrigger::manual);
   }
   impl_->deliver_updates();
   return ok;

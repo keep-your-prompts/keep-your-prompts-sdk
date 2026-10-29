@@ -26,6 +26,7 @@ keepyourprompts = "0.1"                                                     # bl
 | `blocking` | yes | HTTP(S) mirrors for `Client` via `ureq` + rustls. Without it `Client` reads only the embedded snapshot, snapshot folders and the disk cache. |
 | `tokio` | no | `AsyncClient` and `Builder::build_async()`: `reqwest` + rustls, the refresher is a tokio task. |
 | `native-certs` | no | Trust the OS certificate store (corporate TLS proxies) instead of the bundled webpki roots (blocking client). |
+| `otel` | no | `kyp::otel`: `kyp.refresh` spans, `kyp.*` metrics and `annotate` on the `opentelemetry` API crate (0.31 to 0.33). See [Observability](#observability). |
 
 ## Quickstart
 
@@ -120,6 +121,67 @@ The delivery key never appears in logs, errors or `status()`: it is shortened to
 ## Errors
 
 `kyp::Error`: `NotFound { name }`, `MissingVariable { names }`, `Unavailable(..)`, `Protocol(..)`, `Config(..)`. `get`/`prompt` return `Option`; `render` returns `Result`. Choose lenient rendering with `render_with(name, vars, OnMissing::Keep | OnMissing::Empty)`.
+
+## Observability
+
+The crate reports which prompt version each LLM call used and how delivery is doing, with the attribute, span and
+metric names of [`protocol/tracing.md`](../protocol/tracing.md), the same in every SDK. The core has no telemetry
+dependency; OpenTelemetry support is the optional `otel` feature.
+
+**Prompt metadata** (memory only, no content):
+
+```rust
+let r = prompts.render_with_meta("triage", &[("company", "Acme")])?;
+r.text;                    // the rendered prompt
+r.meta.attributes(true);   // [("kyp.prompt.name", "triage"), ("kyp.prompt.version", 7), ("kyp.prompt.sha256", ...),
+                           //  ("kyp.app", ...), ("kyp.env", ...), ("kyp.revision", 42), ("kyp.workspace", ...),
+                           //  ("kyp.source", "cdn"), ("gen_ai.prompt.name", "triage"), ("gen_ai.prompt.version", "7")]
+r.meta.trace_metadata();   // flat keys: [("kyp_prompt_name", "triage"), ("kyp_prompt_version", 7), ...]
+r.meta.trace_metadata_json(); // the same as a serde_json object
+```
+
+`meta(name)` returns the same `PromptMeta` without rendering. `langfuse_metadata()` and `langsmith_metadata()` return
+the flat map too, for a Langfuse observation's `metadata` or LangSmith run metadata (or as `Helicone-Property-<key>`
+headers). `kyp.source` is the mirror kind: `embedded`, `snapshot`, `cache`, `cdn`, `origin`, `git` or `custom`.
+
+**OpenTelemetry** (`features = ["otel"]`, uses the `opentelemetry` API crate; your app installs the SDK):
+
+```rust
+use kyp::otel::{Annotate, Instrumentation, OtelOptions};
+
+let otel = Instrumentation::new(OtelOptions::default());          // global tracer and meter providers
+let prompts = kyp::Client::builder().app("support-bot").observer(otel.clone()).build()?;
+otel.attach(&prompts);                                            // gauges + annotate by name (attach_async for AsyncClient)
+
+let r = prompts.render_with_meta("triage", &[("company", "Acme")])?;
+otel.annotate(&r, &Annotate::default())?;                         // kyp.* + gen_ai.prompt.* on the active span
+```
+
+- `annotate` takes a name, a `&PromptMeta` or a `&Rendered`, annotates the active span (or `Annotate::context`'s)
+  and returns the `PromptMeta`; a span that is not recording is left alone. `kyp::otel::annotate(&meta, &opts)` does
+  the same without a client.
+- The instrumentation records a `kyp.refresh` span per refresh round (start-up, poll, `refresh()`; a manual refresh
+  is a child of the active span) with `kyp.fallback`, `kyp.hash_mismatch` and `kyp.update` events, and the metrics
+  `kyp.refresh.duration`, `kyp.fallbacks`, `kyp.hash_mismatches`, `kyp.render.errors` and the gauges
+  `kyp.staleness` and `kyp.revision`, under the instrumentation scope `keepyourprompts`. Rounds that only confirmed
+  what is held (the 30-second heartbeat) are counted but not traced unless `trace_all_refreshes`.
+- `OtelOptions`: `capture_content` (default off, or `KYP_OTEL_CAPTURE_CONTENT`), `gen_ai_attributes` (default
+  `true`), `open_inference` (default `false`: `prompt.vendor`, `prompt.id`, `llm.prompt_template.*`),
+  `trace_all_refreshes` (default `false`). `Instrumentation::with_providers(&tracer_provider, &meter_provider, opts)`
+  uses explicit providers; `shutdown()` stops it.
+
+**Content capture is off by default.** With `capture_content: Some(true)` (or `KYP_OTEL_CAPTURE_CONTENT=true`),
+`annotate` also records the raw template as `kyp.prompt.template` and each variable passed in
+`Annotate::variables` as `gen_ai.prompt.variable.<name>`. Templates can hold proprietary instructions and variables
+often hold personal data, customer content or secrets; with capture on they reach every exporter and backend of
+your OpenTelemetry pipeline and stay there under its retention. Turn it on only where that is acceptable. SDK spans
+and metrics never carry content.
+
+**Without OpenTelemetry**, implement `kyp::Observer` (`on_refresh(&RefreshRecord)`, `on_render_error(&RenderError)`,
+both optional) and pass it to `Builder::observer` or `add_observer` (`remove_observer` with the returned id). A
+`RefreshRecord` has `trigger`, `result`, `start_time`, `duration`, `mirror`, `source`, `revision`,
+`previous_revision`, `workspace`, `error`, `error_type` and `events`. Observers run outside the client's locks; a
+panic is caught and logged.
 
 ## Snapshots: start with zero network
 

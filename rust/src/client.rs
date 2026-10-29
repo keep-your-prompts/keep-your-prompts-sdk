@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use crate::engine::{lock, read_api, Config, EmbeddedFiles, Engine, LogLevel, Mirror, Update};
 use crate::error::{Error, Result};
 use crate::fetch::{self, block_on};
+use crate::telemetry::{Observer, RefreshTrigger};
 
 #[cfg(feature = "blocking")]
 pub(crate) type BlockingTransport = fetch::UreqTransport;
@@ -212,6 +213,13 @@ impl Builder {
         self.cfg.on_update = Some(Arc::new(f));
         self
     }
+    /// Delivery telemetry hook (`protocol/tracing.md`), registered before start-up so the
+    /// start-up round is reported too. May be called several times. The `otel` feature
+    /// provides one ([`otel::Instrumentation`](crate::otel)).
+    pub fn observer(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.cfg.observers.push(observer);
+        self
+    }
     /// Log sink. Default: stderr, `[kyp] warn: ...`.
     pub fn logger(mut self, f: impl Fn(LogLevel, &str) + Send + Sync + 'static) -> Self {
         self.cfg.logger = Some(Arc::new(f));
@@ -272,6 +280,7 @@ impl Client {
         let engine = Arc::new(Engine::new(b.cfg, blocking_transport, false)?);
         block_on(engine.load_local());
         let loaded_locally = engine.current().is_some();
+        engine.deliver_records();
         let wake = Arc::new(Wake { stop: Mutex::new(false), cv: Condvar::new(), refresh: Mutex::new(()) });
         if !loaded_locally {
             if engine.polled.is_empty() {
@@ -311,7 +320,7 @@ impl Client {
         }
         let ok = {
             let _g = lock(&self.wake.refresh);
-            block_on(self.engine.round(true, None))
+            block_on(self.engine.round(true, None, RefreshTrigger::Manual))
         };
         self.engine.deliver_updates();
         ok
@@ -342,7 +351,7 @@ fn startup_from_network(engine: &Engine<BlockingTransport>, wake: &Wake) -> Resu
     while engine.current().is_none() {
         {
             let _g = lock(&wake.refresh);
-            block_on(engine.round(true, Some(deadline)));
+            block_on(engine.round(true, Some(deadline), RefreshTrigger::Start));
         }
         if engine.current().is_some() || Instant::now() + delay >= deadline {
             break;
@@ -351,6 +360,7 @@ fn startup_from_network(engine: &Engine<BlockingTransport>, wake: &Wake) -> Resu
         delay = (delay * 2).min(Duration::from_secs(1));
     }
     engine.clear_pending(); // the first load is not an "update"
+    engine.deliver_records();
     if engine.current().is_some() {
         return Ok(());
     }
@@ -389,7 +399,7 @@ fn run(engine: &Engine<BlockingTransport>, wake: &Wake, immediate: bool) {
         first = false;
         {
             let _g = lock(&wake.refresh);
-            block_on(engine.round(false, None));
+            block_on(engine.round(false, None, RefreshTrigger::Poll));
         }
         engine.deliver_updates();
     }

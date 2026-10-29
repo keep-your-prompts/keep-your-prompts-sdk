@@ -42,6 +42,9 @@ blocking = ["dep:ureq"]
 tokio = ["dep:tokio", "dep:reqwest"]
 # Trust the OS certificate store instead of the bundled webpki roots (blocking client).
 native-certs = ["blocking", "ureq/native-certs"]
+# kyp::otel: kyp.refresh spans, kyp.* metrics and annotate() on the OpenTelemetry API
+# (protocol/tracing.md). Off by default: the core has no telemetry dependency.
+otel = ["dep:opentelemetry"]
 
 [dependencies]
 arc-swap = "1.7"
@@ -51,12 +54,14 @@ sha2 = "0.10"
 ureq = { version = "2.10", optional = true, default-features = false, features = ["tls", "gzip"] }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1.38", optional = true, features = ["rt", "time", "sync", "macros"] }
+opentelemetry = { version = ">=0.31, <0.34", optional = true, default-features = false, features = ["trace", "metrics"] }
 
 [dev-dependencies]
 proptest = { version = "1.4", default-features = false, features = ["std"] }
 tiny_http = "0.12"
 tempfile = "3.10"
 tokio = { version = "1.38", features = ["rt-multi-thread", "time", "sync", "macros"] }
+opentelemetry_sdk = { version = ">=0.31, <0.34", default-features = false, features = ["trace", "metrics", "testing"] }
 
 [package.metadata.docs.rs]
 all-features = true

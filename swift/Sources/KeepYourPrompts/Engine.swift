@@ -37,12 +37,22 @@ final class MirrorEntry: Sendable {
     let config: Mirror
     let kind: MirrorKind
     let shownURL: String
+    /// `kyp.source`
+    let source: String
     let rt = Locked(MirrorRuntime())
 
     init(config: Mirror, kind: MirrorKind, shownURL: String) {
         self.config = config
         self.kind = kind
         self.shownURL = shownURL
+        let k: String
+        switch kind {
+        case .embedded: k = "embedded"
+        case .file: k = "file"
+        case .cache: k = "cache"
+        case .http: k = "http"
+        }
+        self.source = Telemetry.normalizeSource(config.name, kind: k)
     }
 }
 
@@ -80,6 +90,14 @@ final class Engine: Sendable {
     private let statusInfo = Locked(StatusInner())
     private let pending = Locked<[Update]>([])
     private let subscribers = Locked<[UUID: AsyncStream<Update>.Continuation]>([:])
+    // Telemetry (protocol/tracing.md).
+    /// Mirror that served or last confirmed the state.
+    private let sourceIndex = Locked<Int?>(nil)
+    private let observers = Locked<[(UUID, any TelemetryObserver)]>([])
+    /// Span events of the round in progress (rounds run one at a time).
+    private let events = Locked<[TelemetryEvent]>([])
+    /// Finished rounds not yet handed to the observers.
+    private let records = Locked<[RefreshRecord]>([])
 
     var manifestPath: String { "envs/\(options.app)/\(options.env).json" }
     var what: String { "\(options.app)/\(options.env)" }
@@ -153,6 +171,7 @@ final class Engine: Sendable {
         self.polled = polled
         self.cacheIndex = cacheIndex
         self.options = o
+        observers.withLock { $0 = o.observers.map { (UUID(), $0) } }
         if let k = o.deliveryKey, !k.hasPrefix("kypd_") {
             log(.warn, "delivery key does not start with kypd_; check KYP_DELIVERY_KEY")
         }
@@ -216,6 +235,7 @@ final class Engine: Sendable {
     }
 
     func deliverUpdates() {
+        deliverRecords()
         let todo = pending.withLock { p -> [Update] in
             defer { p.removeAll() }
             return p
@@ -229,6 +249,103 @@ final class Engine: Sendable {
     }
 
     func clearPending() { pending.withLock { $0.removeAll() } }
+
+    // MARK: telemetry
+
+    var hasObservers: Bool { !observers.current.isEmpty }
+
+    func addObserver(_ o: any TelemetryObserver) -> ObserverToken {
+        let id = UUID()
+        observers.withLock { $0.append((id, o)) }
+        return ObserverToken(id: id)
+    }
+
+    @discardableResult
+    func removeObserver(_ token: ObserverToken) -> Bool {
+        observers.withLock { obs in
+            let n = obs.count
+            obs.removeAll { $0.0 == token.id }
+            return obs.count != n
+        }
+    }
+
+    func meta(_ p: Prompt, _ s: State) -> PromptMeta {
+        let si = sourceIndex.current
+        return PromptMeta(name: p.name, version: p.version, sha256: p.sha256, app: options.app, env: options.env,
+                          workspace: s.manifest.workspace, revision: s.manifest.revision,
+                          source: si.map { mirrors[$0].source } ?? "")
+    }
+
+    func renderFailed(_ name: String, _ error: Error) {
+        let obs = observers.current
+        guard !obs.isEmpty else { return }
+        let type: String
+        switch error as? KYPError {
+        case .missingVariables?: type = "missing_variable"
+        case .notFound?: type = "not_found"
+        default: return
+        }
+        let e = RenderError(app: options.app, env: options.env, name: name, errorType: type)
+        for (_, o) in obs { o.onRenderError(e) }
+    }
+
+    /// Hands finished rounds to the observers (outside any lock).
+    func deliverRecords() {
+        let todo = records.withLock { r -> [RefreshRecord] in
+            defer { r.removeAll() }
+            return r
+        }
+        guard !todo.isEmpty else { return }
+        let obs = observers.current
+        for r in todo { for (_, o) in obs { o.onRefresh(r) } }
+    }
+
+    private func event(_ name: String, _ attributes: [String: TelemetryValue]) {
+        guard hasObservers else { return }
+        events.withLock { $0.append(TelemetryEvent(name: name, time: Date(), attributes: attributes)) }
+    }
+
+    private func fallback(_ mi: Int, _ err: String) {
+        let m = mirrors[mi]
+        event("kyp.fallback", [
+            "kyp.mirror": .string(m.config.name),
+            "kyp.source": .string(m.source),
+            "error.type": .string(Telemetry.classifyError(err)),
+            "kyp.error": .string(redact(err, key: options.deliveryKey)),
+        ])
+    }
+
+    private func finishRecord(_ trigger: RefreshTrigger, started: (Date, DispatchTime), answeredBy: Int?,
+                              updated: Bool, previous: Int, error: String) {
+        let evs = events.withLock { e -> [TelemetryEvent] in
+            defer { e.removeAll() }
+            return e
+        }
+        guard hasObservers else { return }
+        let s = state.current
+        let failed = answeredBy == nil
+        var errorType = ""
+        if failed {
+            errorType = Telemetry.classifyError(error)
+            if let fb = evs.last(where: { $0.name == "kyp.fallback" }), case .string(let t)? = fb.attributes["error.type"] {
+                errorType = t
+            }
+        }
+        let m = answeredBy.map { mirrors[$0] }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- started.1.uptimeNanoseconds) / 1e9
+        let r = RefreshRecord(
+            app: options.app, env: options.env, trigger: trigger,
+            result: failed ? .failed : (updated ? .updated : .notModified),
+            startTime: started.0, duration: max(0, elapsed),
+            mirror: m?.config.name ?? "", source: m?.source ?? "",
+            revision: s?.manifest.revision ?? 0, previousRevision: previous,
+            workspace: s?.manifest.workspace ?? "",
+            error: failed ? redact(error, key: options.deliveryKey) : "", errorType: errorType, events: evs)
+        records.withLock { rs in
+            rs.append(r)
+            if rs.count > 64 { rs.removeFirst() }  // bounded if nothing drains it
+        }
+    }
 
     // MARK: mirror access
 
@@ -323,6 +440,11 @@ final class Engine: Sendable {
             }
             guard sha256Hex(body) == sha else {
                 let msg = "blob \(short) failed sha256 verification"
+                event("kyp.hash_mismatch", [
+                    "kyp.mirror": .string(mirrors[i].config.name),
+                    "kyp.source": .string(mirrors[i].source),
+                    "kyp.blob.sha256": .string(sha),
+                ])
                 log(.warn, "\(mirrors[i].config.name): \(msg) (discarded)")
                 errors.append("\(mirrors[i].config.name): \(msg)")
                 continue
@@ -403,6 +525,16 @@ final class Engine: Sendable {
         }
         guard case .some(let previous) = old else { return false }
         statusInfo.withLock { $0.source = name }
+        sourceIndex.withLock { $0 = mi }
+        if hasObservers {
+            var changed = st.names.filter { n in previous?.prompts[n]?.sha256 != st.prompts[n]?.sha256 }.count
+            if let p = previous { changed += p.names.filter { st.prompts[$0] == nil }.count }
+            event("kyp.update", [
+                "kyp.revision.previous": .int(previous?.manifest.revision ?? 0),
+                "kyp.revision": .int(st.manifest.revision),
+                "kyp.prompts.changed": .int(changed),
+            ])
+        }
         log(.info, "loaded \(what) revision \(st.manifest.revision) (\(st.prompts.count) prompts) from \(name)")
         if notify {
             var changed = st.names.filter { n in previous?.prompts[n]?.sha256 != st.prompts[n]?.sha256 }
@@ -416,12 +548,18 @@ final class Engine: Sendable {
 
     /// Start-up step 1: local mirrors only; the highest revision wins, ties go to the earlier mirror.
     func loadLocal() async {
+        let started = (Date(), DispatchTime.now())
+        events.withLock { $0.removeAll() }
         locateCache()
         var best: (State, Int)?
+        var errs: [String] = []
         for mi in mirrors.indices where mirrors[mi].kind != .http {
             switch await tryMirror(mi, cur: best?.0, useETag: false, deadline: nil, localOnly: true) {
             case .updated(let st, _): best = (st, mi)
-            case .failed(let err, let missing) where !missing: recordFail(mi, err, count: false)
+            case .failed(let err, let missing) where !missing:
+                recordFail(mi, err, count: false)
+                fallback(mi, err)
+                errs.append("\(mirrors[mi].config.name): \(err)")
             default: break
             }
         }
@@ -429,22 +567,33 @@ final class Engine: Sendable {
             install(st, mi, notify: false)
             if mi != cacheIndex { writeCache(st) }
         }
+        // Only a round when there was something local to read.
+        if mirrors.contains(where: { $0.kind != .http }) {
+            finishRecord(.start, started: started, answeredBy: best?.1, updated: best != nil, previous: 0,
+                         error: errs.isEmpty ? "no local copy" : errs.joined(separator: "; "))
+        } else {
+            events.withLock { $0.removeAll() }
+        }
     }
 
     /// One refresh round over the polled mirrors, in order. Returns true if a mirror answered.
-    func round(ignoreBackoff: Bool, deadline: Date?) async -> Bool {
+    func round(ignoreBackoff: Bool, deadline: Date?, trigger: RefreshTrigger = .poll) async -> Bool {
+        let started = (Date(), DispatchTime.now())
+        events.withLock { $0.removeAll() }
         let cur = state.current
         var errs: [String] = []
         var skipped: [Int] = []
         var answered = false
+        var answeredBy: Int?
+        var updated = false
         for mi in polled {
             if stopped.current { break }
             if !ignoreBackoff && inBackoff(mi) {
                 skipped.append(mi)
                 continue
             }
-            if await attempt(mi, cur: cur, deadline: deadline, errs: &errs) {
-                answered = true
+            if let installed = await attempt(mi, cur: cur, deadline: deadline, errs: &errs) {
+                (answered, answeredBy, updated) = (true, mi, installed)
                 break
             }
         }
@@ -452,8 +601,8 @@ final class Engine: Sendable {
         if !answered {
             for mi in skipped {
                 if stopped.current { break }
-                if await attempt(mi, cur: cur, deadline: deadline, errs: &errs) {
-                    answered = true
+                if let installed = await attempt(mi, cur: cur, deadline: deadline, errs: &errs) {
+                    (answered, answeredBy, updated) = (true, mi, installed)
                     break
                 }
             }
@@ -464,28 +613,38 @@ final class Engine: Sendable {
             s.lastError = (!answered && joined.isEmpty) ? "all mirrors backing off" : joined
         }
         if !answered && !stopped.current { log(.warn, "refresh failed, serving what is held: \(joined)") }
+        finishRecord(trigger, started: started, answeredBy: answeredBy, updated: updated,
+                     previous: cur?.manifest.revision ?? 0,
+                     error: (!answered && joined.isEmpty) ? "all mirrors backing off" : joined)
         return answered
     }
 
-    private func attempt(_ mi: Int, cur: State?, deadline: Date?, errs: inout [String]) async -> Bool {
+    /// `nil` if mirror `mi` did not answer, else whether it installed a new revision.
+    private func attempt(_ mi: Int, cur: State?, deadline: Date?, errs: inout [String]) async -> Bool? {
         let name = mirrors[mi].config.name
         switch await tryMirror(mi, cur: cur, useETag: true, deadline: deadline, localOnly: false) {
         case .updated(let st, let etag):
             recordOK(mi, etag: etag)
-            if install(st, mi, notify: true) { writeCache(st) }
-            return true
+            let installed = install(st, mi, notify: true)
+            if installed { writeCache(st) }
+            return installed
         case .unchanged(let etag):
             recordOK(mi, etag: etag)
-            if cur != nil { statusInfo.withLock { $0.source = name } }
-            return true
+            if cur != nil {
+                statusInfo.withLock { $0.source = name }
+                sourceIndex.withLock { $0 = mi }
+            }
+            return false
         case .stale(let err):
             errs.append("\(name): \(err)")
             recordFail(mi, err, count: false)
-            return false
+            fallback(mi, err)
+            return nil
         case .failed(let err, _):
             errs.append("\(name): \(err)")
             recordFail(mi, err, count: true)
-            return false
+            fallback(mi, err)
+            return nil
         }
     }
 

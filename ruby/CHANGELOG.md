@@ -7,6 +7,13 @@ All notable changes to the `keepyourprompts` gem are listed here. The format fol
 
 First release.
 
+- Observability ([protocol/tracing.md](../protocol/tracing.md)): `Client#meta` and `#render_with_meta` return a
+  `PromptMeta` (`attributes` with the `kyp.*` and `gen_ai.prompt.*` span attributes, `trace_metadata`,
+  `langfuse_metadata`, `langsmith_metadata`); an observer hook (`observer:` option, `add_observer`) receives a
+  `RefreshRecord` per refresh round and render errors; the optional `require "keepyourprompts/otel"` add-on
+  (`opentelemetry-api`, not a dependency of the gem) records `kyp.refresh` spans with events, the `kyp.*` metrics
+  and annotates LLM spans, with content capture off by default.
+
 - `KeepYourPrompts::Client` implementing prompt delivery protocol v1: mirrors in order snapshot folder, disk
   cache, CDN, origin, git; start-up from the newest local copy; a background thread revalidating with ETags
   every 30 s (with jitter); per-mirror backoff; SHA-256 verification; stale manifests ignored; failures never

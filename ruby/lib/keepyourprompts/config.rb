@@ -20,7 +20,8 @@ module KeepYourPrompts
       poller: true,             # false: no background thread, call #refresh yourself
       user_agent: "kyp-ruby/#{VERSION}",
       logger: nil,              # anything with #debug/#info/#warn/#error (Logger, Rails.logger); default $stderr
-      log_level: :warn
+      log_level: :warn,
+      observer: nil             # delivery telemetry hook: #on_refresh(record), #on_render_error(info)
     }.freeze
 
     ENV_VARS = {

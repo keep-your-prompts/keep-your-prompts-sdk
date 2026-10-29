@@ -19,6 +19,7 @@ option(KYP_BUILD_TESTS    "Build the kyp tests"                                 
 option(KYP_BUILD_EXAMPLES "Build the kyp examples"                                             ${KYP_TOP_LEVEL})
 option(KYP_BUILD_TOOLS    "Build the kyp-snapshot tool"                                        ${KYP_TOP_LEVEL})
 option(KYP_WARNINGS_AS_ERRORS "Compile kyp's own targets with -Wall -Wextra -Werror"           ${KYP_TOP_LEVEL})
+option(KYP_WITH_OTEL      "Add kyp::otel (<kyp/otel.hpp>) on the opentelemetry-cpp API"       OFF)
 
 # --- dependencies -----------------------------------------------------------
 if(NOT TARGET nlohmann_json::nlohmann_json)
@@ -56,6 +57,7 @@ add_library(kyp
   src/manifest.cpp
   src/fetch.cpp
   src/embedded.cpp
+  src/telemetry.cpp
   src/client.cpp)
 add_library(kyp::kyp ALIAS kyp)
 target_compile_features(kyp PUBLIC cxx_std_17)
@@ -68,6 +70,18 @@ if(KYP_WITH_CURL)
   target_compile_definitions(kyp PRIVATE KYP_WITH_CURL=1)
 endif()
 set_target_properties(kyp PROPERTIES CXX_EXTENSIONS OFF POSITION_INDEPENDENT_CODE ON)
+
+# --- OpenTelemetry adapter (optional) ---------------------------------------
+# <kyp/tracing.hpp> (any tracer, no dependency) is always available through kyp::kyp.
+# kyp::otel adds the header-only <kyp/otel.hpp> and the opentelemetry-cpp API.
+if(KYP_WITH_OTEL)
+  if(NOT TARGET opentelemetry-cpp::api)
+    find_package(opentelemetry-cpp CONFIG REQUIRED)
+  endif()
+  add_library(kyp_otel INTERFACE)
+  add_library(kyp::otel ALIAS kyp_otel)
+  target_link_libraries(kyp_otel INTERFACE kyp::kyp opentelemetry-cpp::api)
+endif()
 
 # kyp_embed_snapshot(<target> DIR <snapshot-dir>)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/kyp_embed.cmake)

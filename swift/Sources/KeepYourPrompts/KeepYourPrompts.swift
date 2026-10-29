@@ -53,6 +53,9 @@ public struct Options: Sendable {
     public var logger: (@Sendable (LogLevel, String) -> Void)?
     /// Minimum level logged; `nil` turns logging off (`KYP_LOG`).
     public var logLevel: LogLevel?
+    /// Delivery telemetry hooks (protocol/tracing.md), registered before start-up so the start-up
+    /// round is reported too. `KeepYourPromptsOTel` provides one.
+    public var observers: [any TelemetryObserver] = []
 
     public init(app: String, env: String = "prod", deliveryKey: String? = nil) {
         self.app = app
@@ -136,6 +139,7 @@ public final class KeepYourPrompts: Sendable {
         let engine = try Engine(options)
         self.engine = engine
         await engine.loadLocal()
+        engine.deliverRecords()
         let loadedLocally = engine.current != nil
         if !loadedLocally {
             if engine.polled.isEmpty {
@@ -207,9 +211,46 @@ public final class KeepYourPrompts: Sendable {
 
     /// Renders `name`. Throws ``KYPError/notFound(_:)`` or ``KYPError/missingVariables(_:)``.
     public func render(_ name: String, _ vars: [String: String] = [:], onMissing: OnMissing = .error) throws -> String {
-        guard let p = engine.current?.prompts[name] else { throw KYPError.notFound(name) }
-        return try renderTemplate(p.text, vars, onMissing: onMissing)
+        do {
+            guard let p = engine.current?.prompts[name] else { throw KYPError.notFound(name) }
+            return try renderTemplate(p.text, vars, onMissing: onMissing)
+        } catch {
+            engine.renderFailed(name, error)
+            throw error
+        }
     }
+
+    /// Which deployed body `name` is: name, version, sha256, app, env, workspace, revision and the
+    /// mirror kind that served it (protocol/tracing.md). Memory only. Throws ``KYPError/notFound(_:)``.
+    public func meta(_ name: String) throws -> PromptMeta {
+        guard let s = engine.current, let p = s.prompts[name] else { throw KYPError.notFound(name) }
+        return engine.meta(p, s)
+    }
+
+    /// ``render(_:_:onMissing:)`` plus the metadata of the exact body rendered.
+    public func renderWithMeta(_ name: String, _ vars: [String: String] = [:], onMissing: OnMissing = .error) throws -> Rendered {
+        do {
+            guard let s = engine.current, let p = s.prompts[name] else { throw KYPError.notFound(name) }
+            return Rendered(text: try renderTemplate(p.text, vars, onMissing: onMissing), meta: engine.meta(p, s))
+        } catch {
+            engine.renderFailed(name, error)
+            throw error
+        }
+    }
+
+    /// Subscribes to delivery telemetry (refresh rounds, render errors).
+    @discardableResult
+    public func addObserver(_ observer: any TelemetryObserver) -> ObserverToken { engine.addObserver(observer) }
+
+    /// Unsubscribes. Returns whether the observer was subscribed.
+    @discardableResult
+    public func removeObserver(_ token: ObserverToken) -> Bool { engine.removeObserver(token) }
+
+    /// App slug the client is configured with.
+    public var app: String { engine.options.app }
+
+    /// Environment slug the client is configured with.
+    public var env: String { engine.options.env }
 
     /// Prompt names in the current revision, sorted.
     public var names: [String] { engine.current?.names ?? [] }
@@ -231,7 +272,7 @@ public final class KeepYourPrompts: Sendable {
     public func refresh() async -> Bool {
         if engine.polled.isEmpty || engine.stopped.current { return false }
         let engine = self.engine
-        let ok = await engine.gate.run { await engine.round(ignoreBackoff: true, deadline: nil) }
+        let ok = await engine.gate.run { await engine.round(ignoreBackoff: true, deadline: nil, trigger: .manual) }
         engine.deliverUpdates()
         return ok
     }
@@ -252,12 +293,13 @@ public final class KeepYourPrompts: Sendable {
         let deadline = Date().addingTimeInterval(engine.options.startupTimeout)
         var delay: TimeInterval = 0.1
         while engine.current == nil {
-            _ = await engine.gate.run { await engine.round(ignoreBackoff: true, deadline: deadline) }
+            _ = await engine.gate.run { await engine.round(ignoreBackoff: true, deadline: deadline, trigger: .start) }
             if engine.current != nil || Date().addingTimeInterval(delay) >= deadline { break }
             try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
             delay = min(delay * 2, 1)
         }
         engine.clearPending()  // the first load is not an "update"
+        engine.deliverRecords()
         if engine.current != nil { return }
         let err = engine.lastError
         guard engine.options.startEmpty else {
@@ -276,7 +318,7 @@ public final class KeepYourPrompts: Sendable {
                 if Task.isCancelled || engine.stopped.current { return }
             }
             first = false
-            _ = await engine.gate.run { await engine.round(ignoreBackoff: false, deadline: nil) }
+            _ = await engine.gate.run { await engine.round(ignoreBackoff: false, deadline: nil, trigger: .poll) }
             engine.deliverUpdates()
         }
     }

@@ -12,6 +12,9 @@ use KeepYourPrompts\Mirror;
 use KeepYourPrompts\MirrorStatus;
 use KeepYourPrompts\Options;
 use KeepYourPrompts\Prompt;
+use KeepYourPrompts\Telemetry\RefreshRecord;
+use KeepYourPrompts\Telemetry\Telemetry;
+use KeepYourPrompts\Telemetry\TelemetryEvent;
 use KeepYourPrompts\Template;
 use KeepYourPrompts\Update;
 
@@ -34,6 +37,12 @@ final class Engine
     private ?int $cacheIdx = null;
     private ?string $cacheRoot = null;
     private bool $cacheLocated = false;
+    /** @var array<string, string> kyp.source per mirror name */
+    private array $sources = [];
+    /** @var list<TelemetryEvent> span events of the round in progress */
+    private array $events = [];
+    /** @var list<RefreshRecord> finished rounds not yet handed to observers (see takeRecords()) */
+    private array $records = [];
 
     /**
      * @param \Closure(string, string): void $log
@@ -70,6 +79,9 @@ final class Engine
             if ($m['kind'] === self::HTTP) {
                 $this->polled[] = $i;
             }
+        }
+        foreach ($this->mirrors as $m) {
+            $this->sources[$m['mirror']->name] ??= Telemetry::normalizeSource($m['mirror']->name, $m['kind']);
         }
         if ($this->polled === []) {
             // No network mirror: poll the folders, so a snapshot kept current by a sidecar is picked up live.
@@ -113,35 +125,67 @@ final class Engine
         return $this->o->app . '/' . $this->o->env;
     }
 
+    /** kyp.source of a configured mirror name ('' when unknown or empty). */
+    public function sourceOf(string $mirrorName): string
+    {
+        return $this->sources[$mirrorName] ?? '';
+    }
+
+    /**
+     * Refresh rounds finished since the last call, for the observers. The client calls this
+     * after releasing the store lock.
+     *
+     * @return list<RefreshRecord>
+     */
+    public function takeRecords(): array
+    {
+        $r = $this->records;
+        $this->records = [];
+
+        return $r;
+    }
+
     /**
      * Start-up from local mirrors only (snapshot folders, disk cache): the highest
      * revision wins, ties go to the earlier mirror.
      */
     public function loadLocal(State $s): void
     {
+        $started = microtime(true);
+        $this->events = [];
         $this->locateCache();
         $best = null;
         $errors = [];
+        $anyLocal = false;
         foreach ($this->mirrors as $i => $m) {
             if ($m['kind'] === self::HTTP) {
                 continue;
             }
+            $anyLocal = true;
             $a = $this->attempt($i, $best === null ? null : $best[0]->revision, [], '');
             if ($a->outcome === Attempt::UPDATED && $a->manifest !== null) {
                 $best = [$a->manifest, $a->raw, $a->prompts, $i];
             } elseif ($a->outcome === Attempt::FAILED && !$a->missing) {
                 $errors[] = $m['mirror']->name . ': ' . $a->error;
+                $this->fallback($i, $a->error);
                 $this->log('warn', $m['mirror']->name . ': ' . $a->error);
             }
         }
         $s->lastError = implode('; ', $errors);
+        $answeredBy = null;
         if ($best !== null) {
             [$man, $raw, $prompts, $i] = $best;
             $this->install($s, $man, $raw, $prompts, $this->mirrors[$i]['mirror']->name);
             if ($i !== $this->cacheIdx) {
                 $this->writeCache($s);
             }
+            $answeredBy = $i;
         }
+        // Only a round when there was something local to read.
+        if ($anyLocal) {
+            $this->finishRecord($s, 'start', $started, $answeredBy, $best !== null, 0, $s->lastError !== '' ? $s->lastError : 'no local copy');
+        }
+        $this->events = [];
     }
 
     /**
@@ -151,7 +195,7 @@ final class Engine
     {
         $delay = 0.1;
         while (true) {
-            [$answered] = $this->round($s, true, $deadline); // nothing held, so answered means loaded
+            [$answered] = $this->round($s, true, $deadline, 'start'); // nothing held, so answered means loaded
             if ($answered || microtime(true) + $delay >= $deadline) {
                 return;
             }
@@ -164,16 +208,22 @@ final class Engine
      * One refresh round over the polled mirrors, in order, stopping at the first that
      * answers. Mutates $s. Returns whether a mirror answered and the update, if any.
      *
+     * @param 'start'|'poll'|'manual' $trigger
+     *
      * @return array{bool, ?Update}
      */
-    public function round(State $s, bool $ignoreBackoff, ?float $deadline = null): array
+    public function round(State $s, bool $ignoreBackoff, ?float $deadline = null, string $trigger = 'poll'): array
     {
+        $started = microtime(true);
+        $this->events = [];
+        $previous = $s->ready ? $s->revision : 0;
         $this->locateCache();
         $errors = [];
         $skipped = [];
         $update = null;
         $answered = false;
-        $try = function (int $i) use ($s, &$errors, &$update): bool {
+        $answeredBy = null;
+        $try = function (int $i) use ($s, &$errors, &$update, &$answeredBy): bool {
             $name = $this->mirrors[$i]['mirror']->name;
             $a = $this->attempt($i, $s->ready ? $s->revision : null, $s->ready ? $s->bySha() : [], $s->ready ? ($s->etags[$name] ?? '') : '');
             $now = microtime(true);
@@ -186,6 +236,7 @@ final class Engine
                     $update = $this->install($s, $a->manifest, $a->raw, $a->prompts, $name);
                     $this->writeCache($s);
                     $this->recordOk($s, $name, $now);
+                    $answeredBy = $i;
 
                     return true;
                 case Attempt::UNCHANGED:
@@ -196,16 +247,19 @@ final class Engine
                     if ($s->ready) {
                         $s->source = $name;
                     }
+                    $answeredBy = $i;
 
                     return true;
                 case Attempt::STALE:
                     $errors[] = $name . ': ' . $a->error;
                     $s->health($name)->lastError = $a->error;
+                    $this->fallback($i, $a->error);
 
                     return false;
                 default:
                     $errors[] = $name . ': ' . $a->error;
                     $this->recordFail($s, $name, $a->error, $now);
+                    $this->fallback($i, $a->error);
 
                     return false;
             }
@@ -239,6 +293,7 @@ final class Engine
         if (!$answered) {
             $this->log('warn', 'refresh failed, serving what is held: ' . $s->lastError);
         }
+        $this->finishRecord($s, $trigger, $started, $answeredBy, $update !== null, $previous, $s->lastError);
 
         return [$answered, $update];
     }
@@ -391,6 +446,11 @@ final class Engine
             }
             if (hash('sha256', $r->body) !== $sha) {
                 $msg = 'blob ' . substr($sha, 0, 12) . ' failed sha256 verification';
+                $this->event('kyp.hash_mismatch', [
+                    'kyp.mirror' => $this->mirrors[$i]['mirror']->name,
+                    'kyp.source' => $this->sourceOf($this->mirrors[$i]['mirror']->name),
+                    'kyp.blob.sha256' => $sha,
+                ]);
                 $this->log('warn', $this->mirrors[$i]['mirror']->name . ': ' . $msg . ' (discarded)');
                 $errors[] = $this->mirrors[$i]['mirror']->name . ': ' . $msg;
                 continue;
@@ -422,6 +482,11 @@ final class Engine
         }
         sort($changed, SORT_STRING);
         $update = new Update($s->ready ? $s->revision : 0, $man->revision, $source, $changed);
+        $this->event('kyp.update', [
+            'kyp.revision.previous' => $update->oldRevision,
+            'kyp.revision' => $man->revision,
+            'kyp.prompts.changed' => count($changed),
+        ]);
         $s->ready = true;
         $s->revision = $man->revision;
         $s->workspace = $man->workspace;
@@ -434,6 +499,68 @@ final class Engine
         }
 
         return $update;
+    }
+
+    /**
+     * @param 'kyp.fallback'|'kyp.hash_mismatch'|'kyp.update' $name
+     * @param array<string, string|int>                        $attributes
+     */
+    private function event(string $name, array $attributes): void
+    {
+        $this->events[] = new TelemetryEvent($name, microtime(true), $attributes);
+    }
+
+    private function fallback(int $i, string $error): void
+    {
+        $name = $this->mirrors[$i]['mirror']->name;
+        $this->event('kyp.fallback', [
+            'kyp.mirror' => $name,
+            'kyp.source' => $this->sourceOf($name),
+            'error.type' => Telemetry::classifyError($error),
+            'kyp.error' => $this->redact($error),
+        ]);
+    }
+
+    /**
+     * @param 'start'|'poll'|'manual' $trigger
+     * @param float                   $started wall clock at the start of the round
+     */
+    private function finishRecord(State $s, string $trigger, float $started, ?int $answeredBy, bool $updated, int $previous, string $error): void
+    {
+        $events = $this->events;
+        $this->events = [];
+        $failed = $answeredBy === null;
+        $errorType = '';
+        if ($failed) {
+            $errorType = Telemetry::classifyError($error);
+            for ($k = count($events) - 1; $k >= 0; $k--) {
+                if ($events[$k]->name === 'kyp.fallback') {
+                    $errorType = (string) $events[$k]->attributes['error.type'];
+                    break;
+                }
+            }
+        }
+        $mirror = $failed ? '' : $this->mirrors[$answeredBy]['mirror']->name;
+        $this->records[] = new RefreshRecord(
+            app: $this->o->app,
+            env: $this->o->env,
+            trigger: $trigger,
+            result: $failed ? 'failed' : ($updated ? 'updated' : 'not_modified'),
+            startTime: $started,
+            duration: max(0.0, microtime(true) - $started),
+            mirror: $mirror,
+            source: $this->sourceOf($mirror),
+            revision: $s->ready ? $s->revision : 0,
+            previousRevision: $previous,
+            workspace: $s->ready ? $s->workspace : '',
+            error: $failed ? $this->redact($error) : '',
+            errorType: $errorType,
+            events: $events,
+        );
+        // Bounded: a client without observers never drains this list.
+        if (count($this->records) > 16) {
+            array_shift($this->records);
+        }
     }
 
     private function recordOk(State $s, string $name, float $now): void

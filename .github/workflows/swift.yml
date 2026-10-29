@@ -35,6 +35,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build -scheme KeepYourPrompts -destination 'generic/platform=iOS Simulator' -quiet
+          xcodebuild build -scheme KeepYourPromptsOTel -destination 'generic/platform=iOS Simulator' -quiet
 
   linux:
     name: linux (swift ${{ matrix.swift }})
