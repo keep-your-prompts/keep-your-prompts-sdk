@@ -1,0 +1,18 @@
+{
+	"node": "n8n-nodes-keepyourprompts.keepYourPrompts",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Development", "Productivity"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/automation/n8n#credentials"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/automation/n8n#readme"
+			}
+		]
+	}
+}
