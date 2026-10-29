@@ -63,6 +63,25 @@ console.log(prompts.status());                            // which mirror served
 A delivery key (`kypd_...`) is read-only and scoped to a workspace and its apps: create one in the app under
 Settings > Delivery keys and keep it server-side.
 
+## Framework adapters
+
+Separate packages under [`adapters/`](adapters/README.md) plug deployed prompts into AI frameworks. Each depends on the
+matching core SDK and on the framework; rendering, strict variables and memory-only reads are the core SDK's, and
+every adapter exposes the prompt's name, version and SHA-256 for tracing.
+
+| Framework | Package | Folder |
+| --- | --- | --- |
+| Vercel AI SDK | `@keepyourprompts/ai-sdk` | [`adapters/vercel-ai/`](adapters/vercel-ai) |
+| LangChain.js | `@keepyourprompts/langchain` | [`adapters/langchain-js/`](adapters/langchain-js) |
+| LangChain (Python) | `keepyourprompts-langchain` | [`adapters/langchain-python/`](adapters/langchain-python) |
+| LlamaIndex | `keepyourprompts-llamaindex` | [`adapters/llamaindex-python/`](adapters/llamaindex-python) |
+| OpenAI Agents SDK (Python) | `keepyourprompts-openai-agents` | [`adapters/openai-agents-python/`](adapters/openai-agents-python) |
+| OpenAI Agents SDK (JS) | `@keepyourprompts/openai-agents` | [`adapters/openai-agents-js/`](adapters/openai-agents-js) |
+| Claude Agent SDK (TypeScript) | `@keepyourprompts/claude-agent-sdk` | [`adapters/claude-agent-sdk-ts/`](adapters/claude-agent-sdk-ts) |
+| Claude Agent SDK (Python) | `keepyourprompts-claude-agent-sdk` | [`adapters/claude-agent-sdk-python/`](adapters/claude-agent-sdk-python) |
+| Spring AI | `com.keepyourprompts:kyp-spring-ai` | [`adapters/spring-ai/`](adapters/spring-ai) |
+| Semantic Kernel (.NET) | `KeepYourPrompts.SemanticKernel` | [`adapters/semantic-kernel-dotnet/`](adapters/semantic-kernel-dotnet) |
+
 ## How availability works
 
 Prompt bodies never change (`blobs/<sha256>`); only a small manifest per app environment (`envs/<app>/<env>.json`)

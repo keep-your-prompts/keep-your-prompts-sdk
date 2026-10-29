@@ -167,8 +167,8 @@ function withKyp(meta: SharedV4ProviderMetadata | undefined, prompts: PromptMeta
  * Language model middleware that finds messages rendered by `kypInstructions` / `kypMessages`, strips
  * the tag from what the provider receives, and adds `providerMetadata.kyp` (`{ name, version, sha256,
  * prompts[] }`) to the result: `result.providerMetadata.kyp` for `generateText`, the `finish` part for
- * `streamText`. The AI SDK's telemetry records provider metadata on its spans, so the prompt version
- * travels with every call. Use with `wrapLanguageModel({ model, middleware: kypMiddleware() })`.
+ * `streamText`. The AI SDK's OpenTelemetry integration records provider metadata on its spans when created with
+ * `providerMetadata: true`. Use with `wrapLanguageModel({ model, middleware: kypMiddleware() })`.
  */
 export function kypMiddleware(options: KypMiddlewareOptions = {}): LanguageModelV4Middleware {
   const strip = options.strip !== false;

@@ -49,8 +49,10 @@ background refresher shows up on the next call without a restart.
 `kypInstructions` and `kypMessages` put `{ name, version, sha256 }` under `providerOptions.kyp` on the message they
 return. `kypMiddleware()` finds those messages in each model call, removes the tag before the provider sees it, and
 adds `providerMetadata.kyp` to the result (`result.providerMetadata` for `generateText`, the `finish` part of
-`streamText`). The AI SDK records provider metadata in its telemetry, so the prompt version travels with every span
-without extra configuration. `onCall` is called once per tagged model call if you want to log or count it yourself.
+`streamText`). To see it on your spans, turn on provider metadata in the AI SDK's OpenTelemetry integration (it is
+off by default): `registerTelemetry(new OpenTelemetry({ providerMetadata: true }))` records
+`ai.response.providerMetadata`, which then includes `kyp`. `onCall` is called once per tagged model call if you want
+to log or count it yourself.
 
 AI SDK 7 refuses system messages inside `messages` unless you pass `allowSystemInMessages: true`; put the system
 prompt in `instructions`.
