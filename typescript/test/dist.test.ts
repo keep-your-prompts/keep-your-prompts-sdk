@@ -20,4 +20,13 @@ describe.skipIf(!built)('dist', () => {
       await c.close();
     }
   });
+
+  it('exposes the otel subpath in both formats', async () => {
+    const cjs = createRequire(import.meta.url)(join(dist, 'otel.cjs')) as typeof import('../src/otel.js');
+    const esm = (await import(join(dist, 'otel.js'))) as typeof import('../src/otel.js');
+    for (const m of [cjs, esm]) {
+      expect(typeof m.instrument).toBe('function');
+      expect(m.SCOPE).toBe('keepyourprompts');
+    }
+  });
 });

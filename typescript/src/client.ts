@@ -1,5 +1,5 @@
 // Client: mirrors, background refresh and the in-memory read path.
-import { NotFoundError, KypError, UnavailableError } from './errors.js';
+import { MissingVariableError, NotFoundError, KypError, UnavailableError } from './errors.js';
 import {
   atomicWrite,
   decodeUtf8,
@@ -17,6 +17,18 @@ import {
 import { isSlug, parseManifest, type Manifest } from './manifest.js';
 import { OUTCOME_KINDS, OutcomeBuffer, type OutcomeReport } from './outcomes.js';
 import { sha256Hex } from './sha256.js';
+import {
+  classifyError,
+  normalizeSource,
+  promptMeta,
+  type Observer,
+  type PromptMeta,
+  type RefreshRecord,
+  type RefreshTrigger,
+  type Rendered,
+  type SourceKind,
+  type TelemetryEvent,
+} from './telemetry.js';
 import { renderTemplate, type RenderOptions, type Vars } from './template.js';
 import { VERSION } from './version.js';
 
@@ -152,6 +164,8 @@ export interface ClientOptions {
   outcomeBufferSize?: number;
   /** Milliseconds between outcome flushes (default 10 000). */
   outcomeFlushInterval?: number;
+  /** Delivery telemetry hook (see protocol/tracing.md); `@keepyourprompts/sdk/otel` provides one. */
+  observer?: Observer;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +177,7 @@ type Kind = 'embedded' | 'file' | 'cache' | 'http';
 interface MirrorRt {
   name: string;
   kind: Kind;
+  source: SourceKind;
   url: string;
   shownUrl: string;
   token?: string;
@@ -267,6 +282,9 @@ export class Client {
   private lastRoundAt = 0;
   private readonly outcomes: OutcomeBuffer | null = null;
   private readonly embedded?: EmbeddedSnapshot;
+  private readonly observers = new Set<Observer>();
+  /** Span events of the refresh round in progress (rounds run one at a time). */
+  private roundEvents: TelemetryEvent[] = [];
 
   private constructor(options: ClientOptions) {
     const o = { ...options };
@@ -292,6 +310,7 @@ export class Client {
     if (this.key && !this.key.startsWith('kypd_'))
       this.log('warn', 'delivery key does not start with kypd_; check KYP_DELIVERY_KEY');
     if (o.onUpdate) this.listeners.add(o.onUpdate);
+    if (o.observer) this.observers.add(o.observer);
     this.embedded = o.embeddedSnapshot;
     if (o.apiKey) {
       this.outcomes = new OutcomeBuffer({
@@ -371,7 +390,39 @@ export class Client {
 
   /** Render a prompt. Throws `NotFoundError` or `MissingVariableError` (unless `{ strict: false }`). */
   render(name: string, vars: Vars = {}, options?: RenderOptions): string {
-    return renderTemplate(this.find(name).text, vars, options);
+    try {
+      return renderTemplate(this.find(name).text, vars, options);
+    } catch (e) {
+      this.renderFailed(name, e);
+      throw e;
+    }
+  }
+
+  /**
+   * Which deployed body `name` is: name, version, sha256, app, env, workspace, revision and the
+   * mirror kind that served it. Memory only. Throws `NotFoundError`.
+   */
+  meta(name: string): PromptMeta {
+    const s = this.state;
+    return this.metaOf(this.find(name), s);
+  }
+
+  /** `render` plus the metadata of the exact body rendered (one consistent state). */
+  renderWithMeta(name: string, vars: Vars = {}, options?: RenderOptions): Rendered {
+    const s = this.state;
+    try {
+      const p = this.findIn(s, name);
+      return Object.freeze({ text: renderTemplate(p.text, vars, options), meta: this.metaOf(p, s) });
+    } catch (e) {
+      this.renderFailed(name, e);
+      throw e;
+    }
+  }
+
+  /** Subscribe to delivery telemetry (refresh rounds, render errors). Returns an unsubscribe function. */
+  addObserver(observer: Observer): () => void {
+    this.observers.add(observer);
+    return () => this.observers.delete(observer);
   }
 
   /** Prompt names in the current revision. */
@@ -430,7 +481,7 @@ export class Client {
   /** Revalidate now across mirrors, ignoring backoff. Resolves `true` if a mirror answered. */
   async refresh(): Promise<boolean> {
     if (!this.polled.length || this.closed) return false;
-    const ok = await this.serial(() => this.round(true, Infinity));
+    const ok = await this.serial(() => this.round(true, Infinity, 'manual'));
     this.deliver();
     return ok;
   }
@@ -452,21 +503,25 @@ export class Client {
    * Record how a call that used a prompt went. Buffered and sent in the background to
    * `POST {apiUrl}/v1/apps/{app}/outcomes`; a no-op without an API key. Never throws.
    */
-  report(r: OutcomeReport): void {
+  report(r: OutcomeReport | (Partial<Omit<OutcomeReport, 'prompt'>> & { prompt: PromptMeta | Rendered; outcome: OutcomeReport['outcome'] })): void {
     if (!this.outcomes || this.closed) return;
     try {
       if (!r || !OUTCOME_KINDS.includes(r.outcome)) {
         this.log('warn', `report: unknown outcome "${r?.outcome}" (use ${OUTCOME_KINDS.join(', ')})`);
         return;
       }
-      const sha256 = r.sha256 ?? this.state?.prompts.get(r.prompt)?.sha256;
+      // A PromptMeta (or renderWithMeta result) pins the body that was actually used.
+      const meta: PromptMeta | undefined =
+        typeof r.prompt === 'string' ? undefined : 'meta' in r.prompt ? r.prompt.meta : r.prompt;
+      const name = meta ? meta.name : (r.prompt as string);
+      const sha256 = meta?.sha256 ?? r.sha256 ?? this.state?.prompts.get(name)?.sha256;
       if (!sha256) {
-        this.log('debug', `report: prompt "${r.prompt}" is not deployed; dropped`);
+        this.log('debug', `report: prompt "${name}" is not deployed; dropped`);
         return;
       }
       this.outcomes.add({
-        env: this.env,
-        prompt: r.prompt,
+        env: meta?.env ?? this.env,
+        prompt: name,
         sha256,
         outcome: r.outcome,
         latencyMs: r.latencyMs,
@@ -497,13 +552,97 @@ export class Client {
   // --- internals ------------------------------------------------------------
 
   private find(name: string): Prompt {
-    const s = this.state;
+    return this.findIn(this.state, name);
+  }
+
+  private findIn(s: State | null, name: string): Prompt {
     const p = s?.prompts.get(name);
     if (p) return p;
     throw new NotFoundError(
       name,
       s ? `${this.app}/${this.env} revision ${s.manifest.revision}` : `nothing loaded for ${this.app}/${this.env}`,
     );
+  }
+
+  private metaOf(p: Prompt, s: State | null): PromptMeta {
+    const mi = this.mirrors.find((m) => m.name === this.source);
+    return promptMeta({
+      name: p.name,
+      version: p.version,
+      sha256: p.sha256,
+      app: this.app,
+      env: this.env,
+      workspace: s?.manifest.workspace ?? '',
+      revision: s?.manifest.revision ?? 0,
+      source: mi ? mi.source : '',
+    });
+  }
+
+  private renderFailed(name: string, e: unknown): void {
+    if (!this.observers.size) return;
+    const errorType =
+      e instanceof MissingVariableError ? 'missing_variable' : e instanceof NotFoundError ? 'not_found' : undefined;
+    if (!errorType) return;
+    for (const o of this.observers) {
+      try {
+        o.onRenderError?.({ app: this.app, env: this.env, name, errorType });
+      } catch (err) {
+        this.log('error', `observer threw: ${describeError(err)}`);
+      }
+    }
+  }
+
+  private event(name: TelemetryEvent['name'], attributes: Record<string, string | number>): void {
+    if (this.observers.size) this.roundEvents.push({ name, time: Date.now(), attributes });
+  }
+
+  private fallback(mi: number, err: string): void {
+    const m = this.mirrors[mi]!;
+    this.event('kyp.fallback', {
+      'kyp.mirror': m.name,
+      'kyp.source': m.source,
+      'error.type': classifyError(err),
+      'kyp.error': redact(err, this.key),
+    });
+  }
+
+  private emitRound(
+    trigger: RefreshTrigger,
+    started: number,
+    answeredBy: number,
+    prevRevision: number,
+    updated: boolean,
+    error: string,
+  ): void {
+    const events = this.roundEvents;
+    this.roundEvents = [];
+    if (!this.observers.size) return;
+    const s = this.state;
+    const m = answeredBy >= 0 ? this.mirrors[answeredBy] : undefined;
+    const lastFallback = [...events].reverse().find((e) => e.name === 'kyp.fallback');
+    const rec: RefreshRecord = {
+      app: this.app,
+      env: this.env,
+      trigger,
+      result: !m ? 'failed' : updated ? 'updated' : 'not_modified',
+      startTime: started,
+      duration: Math.max(0, Date.now() - started) / 1000,
+      mirror: m?.name ?? '',
+      source: m?.source ?? '',
+      revision: s?.manifest.revision ?? 0,
+      previousRevision: prevRevision,
+      workspace: s?.manifest.workspace ?? '',
+      error: m ? '' : redact(error, this.key),
+      errorType: m ? '' : String(lastFallback?.attributes['error.type'] ?? classifyError(error)),
+      events,
+    };
+    for (const o of this.observers) {
+      try {
+        o.onRefresh?.(rec);
+      } catch (err) {
+        this.log('error', `observer threw: ${describeError(err)}`);
+      }
+    }
   }
 
   private log(level: LogLevel, msg: string): void {
@@ -531,6 +670,7 @@ export class Client {
     this.mirrors.push({
       name,
       kind,
+      source: normalizeSource(name, kind) as SourceKind,
       url,
       shownUrl: redact(url, this.key),
       token,
@@ -615,7 +755,7 @@ export class Client {
     this.timer = undefined;
     if (this.closed) return;
     try {
-      await this.serial(() => this.round(false, Infinity));
+      await this.serial(() => this.round(false, Infinity, 'poll'));
     } catch (e) {
       this.log('error', `refresh error: ${describeError(e)}`);
     }
@@ -712,6 +852,11 @@ export class Client {
       }
       if ((await sha256Hex(r.body!)) !== sha) {
         const msg = `blob ${sha.slice(0, 12)} failed sha256 verification`;
+        this.event('kyp.hash_mismatch', {
+          'kyp.mirror': this.mirrors[i]!.name,
+          'kyp.source': this.mirrors[i]!.source,
+          'kyp.blob.sha256': sha,
+        });
         this.log('warn', `${this.mirrors[i]!.name}: ${msg} (discarded)`);
         errors.push(`${this.mirrors[i]!.name}: ${msg}`);
         continue;
@@ -765,6 +910,14 @@ export class Client {
     const old = this.state;
     this.state = st; // the swap: one reference assignment
     this.source = this.mirrors[mi]!.name;
+    let changedCount = 0;
+    for (const p of st.prompts.values()) if (old?.prompts.get(p.name)?.sha256 !== p.sha256) changedCount++;
+    if (old) for (const name of old.prompts.keys()) if (!st.prompts.has(name)) changedCount++;
+    this.event('kyp.update', {
+      'kyp.revision.previous': old?.manifest.revision ?? 0,
+      'kyp.revision': st.manifest.revision,
+      'kyp.prompts.changed': changedCount,
+    });
     this.log(
       'info',
       `loaded ${this.app}/${this.env} revision ${st.manifest.revision} (${st.prompts.size} prompts) from ${this.source}`,
@@ -783,23 +936,33 @@ export class Client {
 
   // Start-up step 1: local mirrors only. The highest revision wins; ties go to the earlier mirror.
   private async loadLocal(): Promise<void> {
+    const started = Date.now();
+    this.roundEvents = [];
     await this.locateCache();
     let best: State | null = null;
     let bestMi = -1;
+    let anyLocal = false;
+    const errs: string[] = [];
     for (let mi = 0; mi < this.mirrors.length; mi++) {
       if (this.mirrors[mi]!.kind === 'http') continue;
+      anyLocal = true;
       const [oc, c] = await this.tryMirror(mi, best, false, Infinity);
       if (oc === 'updated') {
         best = c.state!;
         bestMi = mi;
       } else if (oc === 'failed' && !c.missing) {
         this.recordFail(mi, c.err ?? '', false);
+        this.fallback(mi, c.err ?? '');
+        errs.push(`${this.mirrors[mi]!.name}: ${c.err}`);
       }
     }
     if (best) {
       this.install(best, bestMi, false);
       if (bestMi !== this.cacheIdx) await this.writeCache(best);
     }
+    // Only a round when there was something local to read.
+    if (anyLocal) this.emitRound('start', started, bestMi, 0, !!best, errs.join('; ') || 'no local copy');
+    else this.roundEvents = [];
   }
 
   // Start-up step 2: nothing local, so wait on the network up to startupTimeout.
@@ -807,7 +970,7 @@ export class Client {
     const deadline = Date.now() + this.opts.startupTimeout;
     let delay = 100;
     while (!this.state) {
-      await this.serial(() => this.round(true, deadline));
+      await this.serial(() => this.round(true, deadline, 'start'));
       const remaining = deadline - Date.now();
       if (this.state || remaining <= 100) break;
       await new Promise((r) => setTimeout(r, Math.min(delay, remaining - 100)));
@@ -823,11 +986,15 @@ export class Client {
   }
 
   // One refresh round over the polled mirrors, in order. Runs inside serial().
-  private async round(ignoreBackoff: boolean, deadline: number): Promise<boolean> {
+  private async round(ignoreBackoff: boolean, deadline: number, trigger: RefreshTrigger): Promise<boolean> {
     this.lastRoundAt = Date.now();
+    const started = this.lastRoundAt;
+    this.roundEvents = [];
     const cur = this.state;
     const errs: string[] = [];
     const skipped: number[] = [];
+    let answeredBy = -1;
+    let updated = false;
     const attempt = async (mi: number): Promise<boolean> => {
       const m = this.mirrors[mi]!;
       const [oc, c] = await this.tryMirror(mi, cur, true, deadline);
@@ -837,19 +1004,24 @@ export class Client {
           this.install(c.state!, mi, true);
           await this.writeCache(c.state!);
           this.recordOk(mi);
+          answeredBy = mi;
+          updated = true;
           return true;
         case 'unchanged':
           m.etag = c.etag ?? m.etag;
           this.recordOk(mi);
           if (cur) this.source = m.name;
+          answeredBy = mi;
           return true;
         case 'stale':
           errs.push(`${m.name}: ${c.err}`);
           this.recordFail(mi, c.err ?? '', false);
+          this.fallback(mi, c.err ?? '');
           return false;
         default:
           errs.push(`${m.name}: ${c.err}`);
           this.recordFail(mi, c.err ?? '', true);
+          this.fallback(mi, c.err ?? '');
           return false;
       }
     };
@@ -871,6 +1043,7 @@ export class Client {
     if (answered) this.lastSuccess = new Date();
     this.lastError = !answered && !errs.length ? 'all mirrors backing off' : errs.join('; ');
     if (!answered && !this.closed) this.log('warn', `refresh failed, serving what is held: ${errs.join('; ')}`);
+    this.emitRound(trigger, started, answeredBy, cur?.manifest.revision ?? 0, updated, this.lastError);
     return answered;
   }
 

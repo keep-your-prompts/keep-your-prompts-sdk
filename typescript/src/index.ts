@@ -22,6 +22,20 @@ export {
 export { KypError, MissingVariableError, NotFoundError, ProtocolError, UnavailableError } from './errors.js';
 export { isSlug, parseManifest, type Manifest, type ManifestPrompt } from './manifest.js';
 export type { OutcomeKind, OutcomeReport } from './outcomes.js';
+export {
+  classifyError,
+  normalizeSource,
+  promptMeta,
+  type MetaFields,
+  type Observer,
+  type PromptMeta,
+  type RefreshRecord,
+  type RefreshResult,
+  type RefreshTrigger,
+  type Rendered,
+  type SourceKind,
+  type TelemetryEvent,
+} from './telemetry.js';
 export { sha256Hex } from './sha256.js';
 export { pullSnapshot, snapshotModuleSource, writeSnapshotFolder, type PullOptions } from './snapshot.js';
 export {
