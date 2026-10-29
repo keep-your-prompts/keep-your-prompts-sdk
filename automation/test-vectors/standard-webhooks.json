@@ -1,0 +1,174 @@
+{
+  "description": "Standard Webhooks signature vectors shared by the n8n, Zapier and Make apps. Signature = v1,base64(HMAC-SHA256(base64decode(secret without whsec_), id + \".\" + timestamp + \".\" + rawBody)). The first case is the reference vector from the Standard Webhooks specification (https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md). `now` is the receiver clock in seconds; the tolerance is 300 s.",
+  "toleranceSeconds": 300,
+  "cases": [
+    {
+      "name": "spec reference vector",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": true,
+      "expectedSignature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+    },
+    {
+      "name": "secret rotation: old and new signatures, the new one matches",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,78nXHjpFP0tVJQW5D0SBwmVyyW87BV/rL6MgfM/Bw44= v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": true
+    },
+    {
+      "name": "secret rotation: receiver still holds the old secret",
+      "secret": "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE= v1,78nXHjpFP0tVJQW5D0SBwmVyyW87BV/rL6MgfM/Bw44="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": true
+    },
+    {
+      "name": "secret without the whsec_ prefix",
+      "secret": "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": true
+    },
+    {
+      "name": "timestamp 299 s old is accepted",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265629,
+      "valid": true
+    },
+    {
+      "name": "timestamp more than 5 minutes old is rejected",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265631,
+      "valid": false
+    },
+    {
+      "name": "timestamp more than 5 minutes in the future is rejected",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265029,
+      "valid": false
+    },
+    {
+      "name": "tampered body",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232315}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "wrong secret",
+      "secret": "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "unknown signature version only",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1a,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "missing webhook-signature",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330"
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "missing webhook-id",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "non-numeric timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "soon",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "body": "{\"test\": 2432232314}",
+      "now": 1614265330,
+      "valid": false
+    },
+    {
+      "name": "Keep Your Prompts envelope (JSON.stringify of the payload, non-ASCII text)",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "headers": {
+        "webhook-id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+        "webhook-timestamp": "1761732000",
+        "webhook-signature": "v1,wnsI7MDXGFbCOhnRRxxIOQV+08tZGFNY+0+C5VXcXXQ="
+      },
+      "body": "{\"id\":\"msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C\",\"type\":\"deploy.completed\",\"timestamp\":\"2026-10-29T10:00:00.000Z\",\"version\":1,\"workspace\":{\"id\":\"org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp\"},\"data\":{\"app\":{\"id\":\"app_2Pf8Wq4Lx9Mz1Rk7Ty3Hb5C\",\"slug\":\"helpdesk\"},\"env\":\"production\",\"revision\":18,\"deploymentId\":\"dep_4Tz9Wm2Lq8Px1Rk7Hb3Nd5C\",\"message\":\"Ship v4 — «café»\",\"prompts\":[{\"name\":\"triage\",\"assetId\":\"ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V\",\"version\":4,\"sha256\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\"}],\"actor\":{\"type\":\"user\",\"id\":\"usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z\",\"name\":\"Ava Lindqvist\"}}}",
+      "now": 1761732005,
+      "valid": true,
+      "reserializable": true
+    }
+  ]
+}
