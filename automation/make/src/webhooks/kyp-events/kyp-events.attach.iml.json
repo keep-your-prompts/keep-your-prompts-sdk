@@ -1,0 +1,21 @@
+{
+    "url": "/v1/webhooks",
+    "method": "POST",
+    "body": {
+        "url": "{{webhook.url}}",
+        "events": "{{parameters.events}}",
+        "description": "Make scenario",
+        "source": "make"
+    },
+    "response": {
+        "data": {
+            "id": "{{body.id}}",
+            "secret": "{{body.secret}}"
+        }
+    },
+    "log": {
+        "sanitize": [
+            "response.body.secret"
+        ]
+    }
+}

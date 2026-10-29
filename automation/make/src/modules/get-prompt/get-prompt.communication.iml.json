@@ -1,0 +1,7 @@
+{
+    "url": "/v1/assets/{{encodeURL(parameters.prompt)}}",
+    "method": "GET",
+    "response": {
+        "output": "{{body}}"
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "url": "/v1/assets",
+    "method": "POST",
+    "body": {
+        "name": "{{parameters.name}}",
+        "body": "{{parameters.body}}",
+        "kind": "{{ifempty(parameters.kind, 'prompt')}}",
+        "slug": "{{ifempty(parameters.slug, undefined)}}",
+        "description": "{{ifempty(parameters.description, undefined)}}",
+        "tags": "{{if(length(parameters.tags) > 0, parameters.tags, undefined)}}",
+        "message": "{{ifempty(parameters.message, undefined)}}"
+    },
+    "response": {
+        "output": "{{body}}"
+    }
+}

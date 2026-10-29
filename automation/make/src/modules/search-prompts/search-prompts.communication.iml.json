@@ -1,0 +1,26 @@
+{
+    "url": "/v1/search",
+    "method": "GET",
+    "qs": {
+        "q": "{{parameters.query}}",
+        "scope": "{{ifempty(parameters.scope, 'mine')}}",
+        "limit": "{{ifempty(parameters.limit, 10)}}"
+    },
+    "response": {
+        "iterate": "{{body.data}}",
+        "limit": "{{ifempty(parameters.limit, 10)}}",
+        "output": {
+            "id": "{{item.asset.id}}",
+            "slug": "{{item.asset.slug}}",
+            "name": "{{item.asset.name}}",
+            "kind": "{{item.asset.kind}}",
+            "description": "{{item.asset.description}}",
+            "tags": "{{item.asset.tags}}",
+            "currentVersion": "{{item.asset.currentVersion}}",
+            "createdAt": "{{item.asset.createdAt}}",
+            "updatedAt": "{{item.asset.updatedAt}}",
+            "score": "{{item.score}}",
+            "snippet": "{{item.snippet}}"
+        }
+    }
+}

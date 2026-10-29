@@ -1,0 +1,54 @@
+[
+    {
+        "name": "prompt",
+        "type": "text",
+        "label": "Prompt",
+        "required": true,
+        "help": "The slug (`support-triage`) or ID (`ast_…`) of the prompt."
+    },
+    {
+        "name": "version",
+        "type": "uinteger",
+        "label": "Version",
+        "help": "Leave empty for the current version."
+    },
+    {
+        "name": "variables",
+        "type": "array",
+        "label": "Variables",
+        "spec": [
+            {
+                "name": "name",
+                "type": "text",
+                "label": "Name",
+                "required": true,
+                "help": "Variable name as written in the prompt, without braces."
+            },
+            {
+                "name": "value",
+                "type": "text",
+                "label": "Value"
+            }
+        ]
+    },
+    {
+        "name": "onMissing",
+        "type": "select",
+        "label": "If a variable is missing",
+        "default": "error",
+        "options": [
+            {
+                "label": "Stop with an error",
+                "value": "error"
+            },
+            {
+                "label": "Keep the {{placeholder}}",
+                "value": "keep"
+            },
+            {
+                "label": "Leave it empty",
+                "value": "empty"
+            }
+        ]
+    }
+]

@@ -1,0 +1,27 @@
+{
+    "id": "msg_2Kq8Wm4Lp9Tz1Rx7Hb3Nd5C",
+    "type": "prompt.version_saved",
+    "timestamp": "2026-10-29T10:00:00.000Z",
+    "version": 1,
+    "workspace": {
+        "id": "org_5Tz1Rx7Hb3Nd5C2Kq8Wm4Lp"
+    },
+    "data": {
+        "prompt": {
+            "id": "ast_7Hq2Lm9Pw4Xr1Tz8Kd3Bn6V",
+            "slug": "support-triage",
+            "name": "Support triage",
+            "kind": "prompt"
+        },
+        "version": 4,
+        "previousVersion": 3,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "message": "Tighter instructions",
+        "reviewId": null,
+        "actor": {
+            "type": "user",
+            "id": "usr_3x9Q1mWk2Lp8Rt5Vb7Nc4Z",
+            "name": "Ava Lindqvist"
+        }
+    }
+}

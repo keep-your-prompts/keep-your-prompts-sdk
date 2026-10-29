@@ -1,0 +1,7 @@
+[
+    {
+        "name": "id",
+        "label": "Capture ID",
+        "type": "text"
+    }
+]

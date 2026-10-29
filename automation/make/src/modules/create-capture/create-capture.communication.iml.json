@@ -1,0 +1,12 @@
+{
+    "url": "/v1/captures",
+    "method": "POST",
+    "body": {
+        "text": "{{parameters.text}}",
+        "source": "api",
+        "conversationUrl": "{{ifempty(parameters.conversationUrl, undefined)}}"
+    },
+    "response": {
+        "output": "{{body}}"
+    }
+}

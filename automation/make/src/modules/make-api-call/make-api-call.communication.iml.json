@@ -1,0 +1,15 @@
+{
+    "url": "/{{parameters.url}}",
+    "method": "{{parameters.method}}",
+    "headers": "{{toCollection(parameters.headers, 'key', 'value')}}",
+    "qs": "{{toCollection(parameters.qs, 'key', 'value')}}",
+    "body": "{{parameters.body}}",
+    "type": "json",
+    "response": {
+        "output": {
+            "headers": "{{headers}}",
+            "statusCode": "{{statusCode}}",
+            "body": "{{body}}"
+        }
+    }
+}

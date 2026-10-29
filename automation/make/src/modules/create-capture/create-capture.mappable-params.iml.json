@@ -1,0 +1,15 @@
+[
+    {
+        "name": "text",
+        "type": "text",
+        "label": "Text",
+        "required": true,
+        "multiline": true
+    },
+    {
+        "name": "conversationUrl",
+        "type": "url",
+        "label": "Conversation URL",
+        "help": "Where the prompt came from (optional)."
+    }
+]

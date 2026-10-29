@@ -1,0 +1,25 @@
+[
+    {
+        "name": "promptId",
+        "label": "Prompt ID",
+        "type": "text"
+    },
+    {
+        "name": "version",
+        "label": "Version",
+        "type": "uinteger"
+    },
+    {
+        "name": "rendered",
+        "label": "Rendered text",
+        "type": "text"
+    },
+    {
+        "name": "variables",
+        "label": "Variables",
+        "type": "array",
+        "spec": {
+            "type": "text"
+        }
+    }
+]

@@ -1,0 +1,88 @@
+[
+    {
+        "name": "events",
+        "type": "select",
+        "label": "Events",
+        "multiple": true,
+        "required": true,
+        "help": "The events that start the scenario.",
+        "options": [
+            {
+                "label": "All events (including ones added later)",
+                "value": "*"
+            },
+            {
+                "label": "Prompt created (prompt.created)",
+                "value": "prompt.created"
+            },
+            {
+                "label": "Version saved (prompt.version_saved)",
+                "value": "prompt.version_saved"
+            },
+            {
+                "label": "Prompt deleted (prompt.deleted)",
+                "value": "prompt.deleted"
+            },
+            {
+                "label": "Deploy completed (deploy.completed)",
+                "value": "deploy.completed"
+            },
+            {
+                "label": "Rolled back (deploy.rolled_back)",
+                "value": "deploy.rolled_back"
+            },
+            {
+                "label": "Deploy requested (deploy.requested)",
+                "value": "deploy.requested"
+            },
+            {
+                "label": "Deploy approved (deploy.approved)",
+                "value": "deploy.approved"
+            },
+            {
+                "label": "Review requested (review.requested)",
+                "value": "review.requested"
+            },
+            {
+                "label": "Review merged (review.merged)",
+                "value": "review.merged"
+            },
+            {
+                "label": "Review closed (review.closed)",
+                "value": "review.closed"
+            },
+            {
+                "label": "Capture created (capture.created)",
+                "value": "capture.created"
+            },
+            {
+                "label": "Eval run finished (eval.run_completed)",
+                "value": "eval.run_completed"
+            },
+            {
+                "label": "Eval gate failed (eval.gate_failed)",
+                "value": "eval.gate_failed"
+            },
+            {
+                "label": "Sync conflict (sync.conflict)",
+                "value": "sync.conflict"
+            },
+            {
+                "label": "Sync failing (sync.failed)",
+                "value": "sync.failed"
+            },
+            {
+                "label": "Quota warning (quota.warning)",
+                "value": "quota.warning"
+            },
+            {
+                "label": "Member joined (member.joined)",
+                "value": "member.joined"
+            },
+            {
+                "label": "Member removed (member.removed)",
+                "value": "member.removed"
+            }
+        ]
+    }
+]

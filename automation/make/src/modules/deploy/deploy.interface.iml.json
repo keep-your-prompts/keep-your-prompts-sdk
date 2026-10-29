@@ -1,0 +1,27 @@
+[
+    {
+        "name": "status",
+        "label": "Status",
+        "type": "text"
+    },
+    {
+        "name": "revision",
+        "label": "Revision",
+        "type": "uinteger"
+    },
+    {
+        "name": "publishedAt",
+        "label": "Published at",
+        "type": "date"
+    },
+    {
+        "name": "id",
+        "label": "Deploy request ID",
+        "type": "text"
+    },
+    {
+        "name": "approvalsNeeded",
+        "label": "Approvals needed",
+        "type": "uinteger"
+    }
+]
