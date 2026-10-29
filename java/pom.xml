@@ -10,7 +10,7 @@
   <packaging>jar</packaging>
 
   <name>Keep Your Prompts SDK</name>
-  <description>Serve deployed prompts from memory, keep them fresh in the background, and keep serving when the network does not. Zero runtime dependencies.</description>
+  <description>Serve deployed prompts from memory, keep them fresh in the background, and keep serving when the network does not. Zero runtime dependencies (OpenTelemetry support is optional).</description>
   <url>https://keepyourprompts.com</url>
 
   <licenses>
@@ -40,11 +40,25 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <junit.version>5.11.4</junit.version>
     <kotlin.version>2.1.0</kotlin.version>
+    <opentelemetry.version>1.49.0</opentelemetry.version>
     <!-- The shared conformance suite (cases.json, fixtures/, fake_cdn.py). -->
     <kyp.conformance.dir>${project.basedir}/../conformance</kyp.conformance.dir>
   </properties>
 
   <dependencies>
+    <!-- Optional: only com.keepyourprompts.otel uses it. Apps that want OpenTelemetry add it themselves. -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-api</artifactId>
+      <version>${opentelemetry.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-sdk-testing</artifactId>
+      <version>${opentelemetry.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

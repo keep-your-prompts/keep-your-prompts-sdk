@@ -13,3 +13,7 @@ First release.
 - `snapshotFromClasspath(prefix)` so fat jars and Spring Boot apps start with zero network.
 - `pullSnapshot(builder, dir)` to write the deployed state to a folder.
 - Zero runtime dependencies; Java 17 bytecode, tested on 17, 21 and 25.
+- Observability ([`protocol/tracing.md`](../protocol/tracing.md)): `meta`, `renderWithMeta`, `PromptMeta`
+  attribute and Langfuse/LangSmith metadata maps, `Telemetry.Observer` / `addObserver` / `Builder.observer`, and
+  `com.keepyourprompts.otel.KypOpenTelemetry` (`instrument`, `annotate`) with `opentelemetry-api` as an optional
+  dependency.
