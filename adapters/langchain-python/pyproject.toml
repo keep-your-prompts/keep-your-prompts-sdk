@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "keepyourprompts-langchain"
+version = "0.1.0"
+description = "Keep Your Prompts for LangChain: PromptTemplate and ChatPromptTemplate loaders for deployed prompts, a hub-like pull(name) and live prompts that follow deploys."
+readme = "README.md"
+requires-python = ">=3.10"
+# PEP 639. LICENSE is the repository root file, copied here by the release workflow.
+license = "LicenseRef-Republic-Lex-Aequa-1.0"
+license-files = ["LICENSE"]
+keywords = ["prompts", "llm", "prompt-management", "langchain", "prompt-hub"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = ["keepyourprompts>=0.1.0,<0.2", "langchain-core>=1.0,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://keepyourprompts.com"
+Source = "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/adapters/langchain-python"
+Changelog = "https://github.com/keep-your-prompts/keep-your-prompts-sdk/blob/main/adapters/langchain-python/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/keepyourprompts_langchain"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/keepyourprompts_langchain", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["UP006", "UP007", "UP035", "UP045", "RUF022"]
