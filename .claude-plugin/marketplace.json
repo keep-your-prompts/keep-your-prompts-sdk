@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "keep-your-prompts",
+  "description": "Official Keep Your Prompts plugins for Claude Code, Cowork and claude.ai.",
+  "owner": {
+    "name": "Keep Your Prompts",
+    "email": "contact@keepyourprompts.com",
+    "url": "https://keepyourprompts.com"
+  },
+  "plugins": [
+    {
+      "name": "kyp",
+      "source": "./integrations/claude-code-plugin",
+      "description": "Search, save, reuse, improve and version your prompts from Claude, plus optional capture of the prompts you type into your Keep Your Prompts inbox.",
+      "category": "productivity",
+      "license": "LicenseRef-Republic-Lex-Aequa-1.0",
+      "tags": ["prompts", "prompt-library", "versioning", "mcp"]
+    }
+  ]
+}

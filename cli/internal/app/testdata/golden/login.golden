@@ -1,0 +1,42 @@
+$ kyp ls
+[stderr]
+kyp: no API key
+hint: run `kyp login` or set KYP_API_KEY (create a key in Settings > API keys)
+[exit 3]
+
+$ kyp login
+[stderr]
+kyp: that is a delivery key (kypd_…), which only reads deployed prompts: export it as KYP_DELIVERY_KEY instead
+usage: kyp login [--key KEY] [--api-url URL] [--no-verify]
+[exit 2]
+
+$ kyp login
+[stderr]
+kyp: warning: API keys start with kyp_live_
+kyp: Unauthorized: Sign in or send an API key. (HTTP 401 unauthorized)
+hint: run `kyp login` or set KYP_API_KEY to a workspace API key (Settings > API keys)
+[exit 3]
+
+$ kyp login
+Logged in as ana@acme.test to Acme (editor). Key saved to $CONFIG/config.json
+[exit 0]
+
+$ kyp ls --limit 1
+SLUG    KIND    VERSION  UPDATED           NAME
+triage  prompt  v2       2026-10-12 10:30  Support triage
+[exit 0]
+
+$ kyp logout
+Removed the API key from $CONFIG/config.json
+[exit 0]
+
+$ kyp ls
+[stderr]
+kyp: no API key
+hint: run `kyp login` or set KYP_API_KEY (create a key in Settings > API keys)
+[exit 3]
+
+$ kyp login --key kyp_live_unverified --no-verify
+Saved the API key (not verified) to $CONFIG/config.json
+[exit 0]
+

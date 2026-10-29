@@ -1,0 +1,8 @@
+description = "Review prompts captured in your Keep Your Prompts inbox and promote the keepers."
+prompt = """
+Review the user's Keep Your Prompts inbox. Arguments: {{args}}
+
+1. Call `list_inbox` (limit: the argument if it is a number, else 15).
+2. Group near-duplicates. For each item show id, source, first line and your suggestion: keep, merge into an existing prompt (check with `search_prompts`), or dismiss.
+3. Wait for the user's choices, then call `promote_capture` or `dismiss_capture` for each. Report one line per item.
+"""

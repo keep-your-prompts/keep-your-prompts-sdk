@@ -1,0 +1,65 @@
+name: cpp
+
+on:
+  push:
+    branches: [main]
+    paths: ['cpp/**', 'conformance/**', 'protocol/**', '.github/workflows/cpp.yml']
+  pull_request:
+    paths: ['cpp/**', 'conformance/**', 'protocol/**', '.github/workflows/cpp.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: cpp
+    shell: bash
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.cxx }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cxx: g++
+          - os: ubuntu-latest
+            cxx: clang++
+          - os: macos-latest
+            cxx: clang++ # Apple clang; libcurl ships with macOS
+    runs-on: ${{ matrix.os }}
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - name: Install libcurl headers and Ninja
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libcurl4-openssl-dev ninja-build
+      - name: Install Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      # tests/fake_cdn.py (test_http) needs python3; without it the test reports itself skipped.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # Release build of the library, kyp-snapshot, examples and tests (-Wall -Wextra -Werror at top level).
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test (unit, embedded snapshot from tests/fixtures/snapshot, HTTP against tests/fake_cdn.py)
+        run: ctest --test-dir build --output-on-failure
+      - name: Build without libcurl (file-only client)
+        if: runner.os == 'Linux' && matrix.cxx == 'g++'
+        run: |
+          cmake -S . -B build-nocurl -G Ninja -DCMAKE_BUILD_TYPE=Release -DKYP_WITH_CURL=OFF
+          cmake --build build-nocurl --parallel
+          ctest --test-dir build-nocurl --output-on-failure

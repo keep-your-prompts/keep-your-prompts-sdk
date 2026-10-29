@@ -1,0 +1,17 @@
+{
+ "schema": 1,
+ "workspace": "acme",
+ "app": "demo",
+ "env": "prod",
+ "revision": 11,
+ "deployed_at": "2026-10-29T09:00:00Z",
+ "prompts": {
+  "greeting": {
+   "sha256": "83b05ea9b3e785e9c916d83db93c79775c2fa1f61bc4b6e4d5335b9bd5ed8e6d",
+   "version": 3,
+   "variables": [
+    "name"
+   ]
+  }
+ }
+}

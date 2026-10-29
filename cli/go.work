@@ -1,0 +1,8 @@
+// Builds the CLI against the SDK in ../go. `go install …/cli/cmd/kyp@<version>`
+// ignores this file and uses the published SDK module (tag go/v<version>).
+go 1.22
+
+use (
+	.
+	../go
+)

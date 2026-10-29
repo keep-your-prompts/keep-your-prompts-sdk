@@ -1,0 +1,2 @@
+# Fixture and snapshot blobs are hashed byte for byte: never convert their line endings.
+**/blobs/** -text

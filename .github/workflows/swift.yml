@@ -1,0 +1,77 @@
+name: swift
+
+on:
+  push:
+    branches: [main]
+    tags: ['swift-v*'] # path filters are not evaluated for tag pushes
+    paths: ['swift/**', 'Package.swift', 'conformance/**', 'protocol/**', '.github/workflows/swift.yml']
+  pull_request:
+    paths: ['swift/**', 'Package.swift', 'conformance/**', 'protocol/**', '.github/workflows/swift.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  macos:
+    name: macOS + iOS (Xcode)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      # python3 is on the runner, so the conformance tests also run against conformance/fake_cdn.py.
+      - name: Test (macOS)
+        run: swift test
+      - name: Test in Swift 6 language mode
+        run: KYP_SWIFT6=1 swift test
+      - name: Build for iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build -scheme KeepYourPrompts -destination 'generic/platform=iOS Simulator' -quiet
+
+  linux:
+    name: linux (swift ${{ matrix.swift }})
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['5.10', '6.2']
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}
+    steps:
+      - name: Install python3 (for conformance/fake_cdn.py)
+        run: apt-get update -qq && apt-get install -y -qq python3-minimal
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: swift-${{ matrix.swift }}-${{ hashFiles('Package.swift') }}
+      - name: Test
+        run: swift test
+      - name: Test in Swift 6 language mode, warnings are errors
+        if: matrix.swift == '6.2'
+        run: KYP_SWIFT6=1 KYP_WERROR=1 swift test
+
+  release:
+    # SwiftPM resolves plain SemVer tags, so swift-vX.Y.Z also publishes X.Y.Z on the same commit.
+    name: tag SwiftPM release
+    if: startsWith(github.ref, 'refs/tags/swift-v')
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push the SemVer tag
+        run: |
+          version="${GITHUB_REF_NAME#swift-v}"
+          grep -q "keepYourPromptsVersion = \"$version\"" swift/Sources/KeepYourPrompts/Types.swift \
+            || { echo "swift/Sources/KeepYourPrompts/Types.swift does not say $version"; exit 1; }
+          git tag "$version" "$GITHUB_SHA"
+          git push origin "refs/tags/$version"

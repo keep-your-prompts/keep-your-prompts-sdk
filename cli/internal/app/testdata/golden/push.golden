@@ -1,0 +1,41 @@
+$ kyp push $TMP/welcome.txt --slug welcome-email --base 1
+[stderr]
+kyp: welcome-email changed on the server (now v2) since v1
+hint: review with `kyp diff welcome-email 1 2`, merge your edit, then push again with --base 2
+[exit 5]
+
+$ kyp push $TMP/welcome.txt --slug welcome-email
+Updated welcome-email: v2 -> v3
+[exit 0]
+
+$ kyp push $TMP/welcome.txt --slug welcome-email
+Unchanged welcome-email (v3): the body is identical
+[exit 0]
+
+$ kyp push - --name Escalation
+Updated escalation: v1 -> v2
+[exit 0]
+
+$ kyp push $TMP/welcome.txt
+[stderr]
+kyp: --name (or --slug) is required
+usage: kyp push FILE --name NAME [--slug SLUG] [-m MESSAGE] [--base N]
+[exit 2]
+
+$ kyp push missing.txt --name X
+[stderr]
+kyp: missing.txt: file not found
+[exit 4]
+
+$ kyp push $TMP/welcome.txt --slug Bad Slug
+[stderr]
+kyp: --slug "Bad Slug": use lowercase letters, digits and dashes, segments joined by /
+usage: kyp push FILE --name NAME [--slug SLUG] [-m MESSAGE] [--base N]
+[exit 2]
+
+$ kyp push - --slug brand-new
+[stderr]
+kyp: --name is required to create "brand-new"
+usage: kyp push FILE --name NAME [--slug SLUG] [-m MESSAGE] [--base N]
+[exit 2]
+

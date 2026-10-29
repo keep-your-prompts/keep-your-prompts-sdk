@@ -1,0 +1,16 @@
+$ kyp capture --source ide --url https://claude.ai/chat/1
+Captured 39 characters to the Inbox (cap_42)
+[exit 0]
+
+$ kyp capture
+[stderr]
+kyp: nothing on stdin to capture
+usage: kyp capture [--source api|ide|other] [--url URL] [--draft] < TEXT
+[exit 2]
+
+$ kyp capture file.txt
+[stderr]
+kyp: capture reads stdin; unexpected argument "file.txt" (try: kyp capture < file.txt)
+usage: kyp capture [--source api|ide|other] [--url URL] [--draft] < TEXT
+[exit 2]
+

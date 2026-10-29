@@ -1,0 +1,66 @@
+name: go
+
+on:
+  push:
+    branches: [main]
+    paths: ['go/**', 'conformance/**', 'protocol/**', '.github/workflows/go.yml']
+  pull_request:
+    paths: ['go/**', 'conformance/**', 'protocol/**', '.github/workflows/go.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: go
+    shell: bash
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: [stable]
+        include:
+          - os: ubuntu-latest
+            go: '1.22' # the minimum in go.mod
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          # One build cache, keyed on the module file (the SDK has no dependencies).
+          cache-dependency-path: go/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: go test -race (in-process fake CDN and conformance/fake_cdn.py)
+        env:
+          KYP_PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
+        run: go test -race -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: go/go.mod
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: fuzz the template renderer
+        run: go test -run '^$' -fuzz FuzzRenderTemplate -fuzztime 30s .
+      - name: benchmarks (smoke)
+        run: go test -run '^$' -bench . -benchtime 20000x -benchmem .

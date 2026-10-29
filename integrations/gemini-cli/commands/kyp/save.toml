@@ -1,0 +1,10 @@
+description = "Save a prompt (your previous message, or the text after --) to Keep Your Prompts as a new prompt or a new version."
+prompt = """
+Save a prompt to the user's Keep Your Prompts library. Arguments: {{args}}
+
+1. If the arguments contain " -- ", the text after it is the prompt and the text before it is the name or handle. Otherwise the prompt is the user's previous message in this conversation, copied exactly; if there is none, ask the user to paste it.
+2. Remove secrets (keys, tokens, passwords, personal data). Propose variables for values that change between uses and apply them only if the user agrees.
+3. Call `search_prompts` with the prompt's purpose. If a close match exists, ask: update it (new version) or create a new prompt?
+4. Create with `create_prompt`, or update with `update_prompt` passing `baseVersion` and a one-line `message`.
+5. Reply with the handle, version and a one-line summary.
+"""

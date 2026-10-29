@@ -1,0 +1,21 @@
+$ kyp ls
+[stderr]
+kyp: Unauthorized: Sign in or send an API key. (HTTP 401 unauthorized)
+hint: run `kyp login` or set KYP_API_KEY to a workspace API key (Settings > API keys)
+[exit 3]
+
+$ kyp ls --json
+[stderr]
+{
+  "error": "Unauthorized: Sign in or send an API key. (HTTP 401 unauthorized)",
+  "exitCode": 3,
+  "hint": "run `kyp login` or set KYP_API_KEY to a workspace API key (Settings > API keys)",
+  "problem": {
+    "detail": "Sign in or send an API key.",
+    "status": 401,
+    "title": "Unauthorized",
+    "type": "https://keepyourprompts.com/problems/unauthorized"
+  }
+}
+[exit 3]
+

@@ -1,0 +1,84 @@
+name: typescript
+
+on:
+  push:
+    branches: [main]
+    tags: ['typescript-v*'] # path filters are not evaluated for tag pushes
+    paths: ['typescript/**', 'conformance/**', 'protocol/**', '.github/workflows/typescript.yml']
+  pull_request:
+    paths: ['typescript/**', 'conformance/**', 'protocol/**', '.github/workflows/typescript.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: typescript
+    shell: bash
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+      # The conformance tests run conformance/fake_cdn.py (standard library only).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Test (conformance suite, unit tests, built ESM/CJS entry points)
+        run: npm test
+      - name: Package contents
+        if: matrix.node == 24
+        run: npm pack --dry-run
+
+  publish:
+    name: publish to npm
+    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance: no token stored
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+      - name: Check the tag matches the version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "typescript-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != ${version}"; exit 1; }
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm run build
+      - name: Ship the repository's license in the package
+        run: cp ../LICENSE LICENSE
+      - name: Publish (trusted publishing, with provenance)
+        run: npm publish --provenance --access public

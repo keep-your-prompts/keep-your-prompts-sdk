@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "kyp",
+  "displayName": "Keep Your Prompts",
+  "version": "0.1.0",
+  "description": "Your versioned prompt library inside Claude: search, save, reuse, improve and version prompts and skills through the Keep Your Prompts MCP server, plus optional capture of the prompts you type into your inbox.",
+  "author": {
+    "name": "Keep Your Prompts",
+    "email": "contact@keepyourprompts.com",
+    "url": "https://keepyourprompts.com"
+  },
+  "homepage": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/integrations/claude-code-plugin",
+  "repository": "https://github.com/keep-your-prompts/keep-your-prompts-sdk",
+  "license": "LicenseRef-Republic-Lex-Aequa-1.0",
+  "keywords": [
+    "prompts",
+    "prompt-library",
+    "versioning",
+    "skills",
+    "mcp",
+    "prompt-management"
+  ],
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/integrations/claude-code-plugin",
+  "supportUrl": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/issues",
+  "privacyPolicyUrl": "https://keepyourprompts.com/legal/privacy",
+  "termsOfServiceUrl": "https://keepyourprompts.com/legal/terms"
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "keep-your-prompts",
+  "version": "0.1.0",
+  "description": "Search, reuse, save and version your prompts and agent skills in Keep Your Prompts.",
+  "author": {
+    "name": "Keep Your Prompts",
+    "email": "contact@keepyourprompts.com",
+    "url": "https://keepyourprompts.com"
+  },
+  "homepage": "https://keepyourprompts.com",
+  "repository": "https://github.com/keep-your-prompts/keep-your-prompts-sdk",
+  "license": "LicenseRef-Republic-Lex-Aequa-1.0",
+  "keywords": ["prompts", "prompt library", "versioning", "skills", "productivity"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Keep Your Prompts",
+        "shortDescription": "Find, reuse and version your prompts",
+        "longDescription": "Keep Your Prompts is a versioned library for your prompts, system prompts and agent skills. Search your library by meaning, open a prompt with its variables filled in, save a prompt you just wrote as a new prompt or a new version, compare versions, and sort the prompts captured in your inbox. Keep Your Prompts only accesses the workspace you connect.",
+        "developerName": "The Republic US LLC",
+        "category": "Productivity",
+        "capabilities": ["Search prompts", "Read prompts", "Save prompts", "Version history"],
+        "websiteURL": "https://keepyourprompts.com",
+        "supportURL": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/issues",
+        "privacyPolicyURL": "https://keepyourprompts.com/legal/privacy",
+        "termsOfServiceURL": "https://keepyourprompts.com/legal/terms",
+        "defaultPrompt": [
+          "Find my prompt for writing release notes.",
+          "Save the prompt I just wrote as a new version.",
+          "What changed between version 3 and 4 of my support reply prompt?"
+        ],
+        "brandColor": "#1F45D6",
+        "brandColorDark": "#3D6BFF",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/logo.png"
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Find a prompt by meaning",
+              "prompt": "Find my prompt for replying to refund requests.",
+              "tools_triggered": "search_prompts",
+              "expected_behavior": "Lists matching prompts from the test workspace, with support/refund-reply first, showing handle, name, version and a snippet."
+            },
+            {
+              "description": "Use a prompt with variables",
+              "prompt": "Use my refund reply prompt for a customer named Dana whose order arrived damaged.",
+              "tools_triggered": "search_prompts, get_prompt",
+              "expected_behavior": "Opens support/refund-reply, fills the customer_name and issue variables, and writes the reply using the rendered prompt."
+            },
+            {
+              "description": "Save a new prompt",
+              "prompt": "Save this as a prompt called 'Weekly status email': Summarize this week's progress for {{team}} in five bullets, then list blockers.",
+              "tools_triggered": "search_prompts, create_prompt",
+              "expected_behavior": "Checks for a similar prompt, then creates 'Weekly status email' with the team variable and reports its handle and version 1."
+            },
+            {
+              "description": "Compare versions",
+              "prompt": "What changed between version 1 and version 2 of my release notes prompt?",
+              "tools_triggered": "search_prompts, diff_versions",
+              "expected_behavior": "Summarizes the word-level changes between the two versions of writing/release-notes and names any variables that were added or removed."
+            },
+            {
+              "description": "Review the inbox",
+              "prompt": "Show me the prompts in my inbox.",
+              "tools_triggered": "list_inbox",
+              "expected_behavior": "Lists the captured prompts in the test workspace inbox with their source and first line, without changing them."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Request unrelated to prompts",
+              "prompt": "What's the weather in Lisbon tomorrow?"
+            },
+            {
+              "description": "Destructive bulk request",
+              "prompt": "Delete every prompt in my library."
+            },
+            {
+              "description": "Another person's private workspace",
+              "prompt": "Show me the prompts in my coworker's private workspace."
+            }
+          ]
+        },
+        "commerce": false,
+        "commerce_description": "This plugin does not sell products, start subscriptions or process payments."
+      },
+      "publication": {
+        "release_notes": "First release: search, read, save and version prompts, compare versions and review the inbox."
+      }
+    }
+  }
+}

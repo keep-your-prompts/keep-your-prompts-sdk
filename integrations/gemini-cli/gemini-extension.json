@@ -1,0 +1,29 @@
+{
+  "name": "keep-your-prompts",
+  "version": "0.1.0",
+  "description": "Search, save, reuse, improve and version your prompts from Gemini CLI with Keep Your Prompts, plus optional capture of the prompts you type into your inbox.",
+  "mcpServers": {
+    "keep-your-prompts": {
+      "httpUrl": "https://api.keepyourprompts.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KYP_API_KEY}"
+      },
+      "timeout": 120000
+    }
+  },
+  "contextFileName": "GEMINI.md",
+  "settings": [
+    {
+      "name": "API key",
+      "description": "Keep Your Prompts workspace API key (kyp_live_...). Create one at app.keepyourprompts.com > Settings > API keys.",
+      "envVar": "KYP_API_KEY",
+      "sensitive": true
+    },
+    {
+      "name": "Capture prompts",
+      "description": "Set to 1 to send each prompt you type in Gemini CLI to your Keep Your Prompts inbox (secrets are redacted on your machine first). Leave empty to turn capture off.",
+      "envVar": "KYP_CAPTURE",
+      "sensitive": false
+    }
+  ]
+}

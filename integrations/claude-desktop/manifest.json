@@ -1,0 +1,83 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "keep-your-prompts",
+  "display_name": "Keep Your Prompts",
+  "version": "0.1.0",
+  "description": "Search, reuse, save, version and deploy your prompts and agent skills from Claude Desktop.",
+  "long_description": "Keep Your Prompts is a versioned library for your prompts, system prompts and agent skills, with an inbox of prompts captured from chat. This extension connects Claude Desktop to your library with a workspace API key: search and read prompts (with their variables), create and update them as new versions, compare versions, triage your inbox, and deploy prompts to your apps. Your saved prompts also appear as MCP prompts.\n\nIt is a small local bridge to the hosted Keep Your Prompts MCP server (https://api.keepyourprompts.com/mcp). If you prefer to sign in with your account instead of an API key, add the server as a custom connector (Settings > Connectors) and skip this extension.",
+  "author": {
+    "name": "Keep Your Prompts",
+    "email": "contact@keepyourprompts.com",
+    "url": "https://keepyourprompts.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keep-your-prompts/keep-your-prompts-sdk"
+  },
+  "homepage": "https://keepyourprompts.com",
+  "license": "LicenseRef-Republic-Lex-Aequa-1.0",
+  "documentation": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/tree/main/integrations/claude-desktop",
+  "support": "https://github.com/keep-your-prompts/keep-your-prompts-sdk/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/proxy.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/proxy.mjs"],
+      "env": {
+        "KYP_API_KEY": "${user_config.api_key}",
+        "KYP_API_URL": "${user_config.api_url}",
+        "KYP_WORKSPACE": "${user_config.workspace}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "search_prompts", "description": "Hybrid keyword and semantic search over your prompts, skills and agents." },
+    { "name": "get_prompt", "description": "Read a prompt by id or handle, optionally a version, optionally rendered with variables." },
+    { "name": "list_tree", "description": "Your folders, projects and the prompts in each." },
+    { "name": "create_prompt", "description": "Create a prompt, skill, agent or snippet." },
+    { "name": "update_prompt", "description": "Change a prompt; a body change creates a new version." },
+    { "name": "list_versions", "description": "Version history of a prompt." },
+    { "name": "diff_versions", "description": "Word-level diff between two versions, with variables added or removed." },
+    { "name": "restore_version", "description": "Make an earlier version current again." },
+    { "name": "list_inbox", "description": "Prompts captured from chat that are not organized yet." },
+    { "name": "promote_capture", "description": "Turn a captured prompt into a versioned prompt." },
+    { "name": "improve_prompt", "description": "Get an improved version of a prompt (does not save)." },
+    { "name": "deploy", "description": "Deploy prompt versions to an app environment." },
+    { "name": "discover", "description": "Search the public library of prompts and skills by other people." }
+  ],
+  "tools_generated": true,
+  "prompts_generated": true,
+  "keywords": ["prompts", "prompt library", "versioning", "skills", "prompt management"],
+  "privacy_policies": ["https://keepyourprompts.com/legal/privacy"],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=18.0.0" }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "A workspace API key (kyp_live_...). Create one at app.keepyourprompts.com > Settings > API keys. A viewer key gives read-only tools.",
+      "sensitive": true,
+      "required": true
+    },
+    "api_url": {
+      "type": "string",
+      "title": "API URL",
+      "description": "Leave as is unless you run your own Keep Your Prompts server.",
+      "default": "https://api.keepyourprompts.com",
+      "required": false
+    },
+    "workspace": {
+      "type": "string",
+      "title": "Workspace id (optional)",
+      "description": "Only needed for OAuth tokens that can see several workspaces; API keys are already bound to one workspace.",
+      "default": "",
+      "required": false
+    }
+  }
+}

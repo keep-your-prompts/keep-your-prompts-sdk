@@ -1,0 +1,100 @@
+name: rust
+
+on:
+  push:
+    branches: [main]
+    tags: ['rust-v*'] # path filters are not evaluated for tag pushes
+    paths: ['rust/**', 'conformance/**', 'protocol/**', '.github/workflows/rust.yml']
+  pull_request:
+    paths: ['rust/**', 'conformance/**', 'protocol/**', '.github/workflows/rust.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: rust
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (rust ${{ matrix.rust }})
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, '1.75']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - if: matrix.rust != 'stable'
+        run: rustup toolchain install ${{ matrix.rust }} --profile minimal
+      # Cache once: one shared cache (keyed by rustc version), saved only by main-branch runs.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: kyp-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Resolve dependency versions that support the MSRV (Cargo.lock is not committed).
+      - run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+      # ubuntu-latest has python3, so the conformance tests also run against conformance/fake_cdn.py.
+      - name: Test (default features)
+        run: cargo +${{ matrix.rust }} test --locked
+      - name: 'Test (all features: tokio AsyncClient)'
+        run: cargo +${{ matrix.rust }} test --locked --all-features
+      - name: Build without HTTP
+        run: cargo +${{ matrix.rust }} build --locked --no-default-features
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: kyp-rust
+          save-if: false
+      - run: cargo fmt --check
+      - name: Clippy (every feature combination)
+        run: |
+          for features in "" "--no-default-features" "--no-default-features --features tokio" "--all-features"; do
+            echo "::group::clippy $features"
+            cargo clippy $features --all-targets -- -D warnings
+            echo "::endgroup::"
+          done
+      - run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Release benchmark (ns per get/render)
+        run: cargo run --release --example bench
+
+  publish:
+    name: publish to crates.io
+    if: startsWith(github.ref, 'refs/tags/rust-v')
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tag matches the crate version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test "rust-v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != rust-v$version"; exit 1; }
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

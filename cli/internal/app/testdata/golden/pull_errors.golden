@@ -1,0 +1,30 @@
+$ kyp pull --out $TMP
+[stderr]
+kyp: --app is required (or set KYP_APP)
+usage: kyp pull --app APP [--env ENV] --out DIR [--format folder|go|ts|json]
+[exit 2]
+
+$ kyp pull --app demo
+[stderr]
+kyp: --out is required
+usage: kyp pull --app APP [--env ENV] --out DIR [--format folder|go|ts|json]
+[exit 2]
+
+$ kyp pull --app demo --out $TMP
+[stderr]
+kyp: no delivery key
+hint: export KYP_DELIVERY_KEY=kypd_… (Settings > Delivery keys) or pass --git-mirror
+[exit 3]
+
+$ kyp pull --app demo --out $TMP --format yaml
+[stderr]
+kyp: --format must be folder, go, ts or json
+usage: kyp pull --app APP [--env ENV] --out DIR [--format folder|go|ts|json]
+[exit 2]
+
+$ kyp pull --app demo --out -
+[stderr]
+kyp: --out - (stdout) needs --format json
+usage: kyp pull --app APP [--env ENV] --out DIR [--format folder|go|ts|json]
+[exit 2]
+

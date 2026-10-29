@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "keep-your-prompts": {
+      "type": "http",
+      "url": "https://api.keepyourprompts.com/mcp",
+      "headersHelper": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-headers.sh\""
+    }
+  }
+}

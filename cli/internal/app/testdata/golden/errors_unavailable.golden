@@ -1,0 +1,5 @@
+$ kyp search x
+[stderr]
+kyp: Service Unavailable: upstream unavailable (HTTP 503)
+[exit 6]
+

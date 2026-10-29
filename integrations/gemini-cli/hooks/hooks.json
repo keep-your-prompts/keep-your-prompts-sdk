@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "keep-your-prompts-capture",
+            "description": "Send the prompt to the Keep Your Prompts inbox when KYP_CAPTURE=1 (redacted locally, never blocks).",
+            "command": "node \"${extensionPath}${/}scripts${/}capture.mjs\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

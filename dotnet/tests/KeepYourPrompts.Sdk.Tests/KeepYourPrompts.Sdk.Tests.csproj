@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- CI installs both runtimes; locally: dotnet test -f net10.0 (or net8.0). -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1591;xUnit1031</NoWarn>
+    <KypConformanceDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../conformance'))</KypConformanceDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/KeepYourPrompts.Sdk/KeepYourPrompts.Sdk.csproj" />
+    <ProjectReference Include="../../src/KeepYourPrompts.Extensions.DependencyInjection/KeepYourPrompts.Extensions.DependencyInjection.csproj" />
+  </ItemGroup>
+
+  <!-- A class-path-style snapshot: the v12 fixture embedded as resources kyp/envs/..., kyp/blobs/... -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(KypConformanceDir)/fixtures/v12/**/*" LogicalName="kyp/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>KypConformanceDir</_Parameter1>
+      <_Parameter2>$(KypConformanceDir)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

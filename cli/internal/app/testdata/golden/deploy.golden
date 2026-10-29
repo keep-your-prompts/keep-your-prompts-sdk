@@ -1,0 +1,54 @@
+$ kyp deploy support-bot prod triage=triage@1 agents/reviewer=agents/reviewer escalation -m ship it
+Deployed support-bot/prod revision 7 (3 prompts)
+  NAME             VERSION  SHA256
+  agents/reviewer  v1       000000000000
+  escalation       v1       000000000000
+  triage           v1       000000000000
+[exit 0]
+
+$ kyp deploy support-bot prod
+[stderr]
+kyp: expected APP ENV and at least one NAME=SLUG[@VERSION]
+usage: kyp deploy APP ENV NAME=SLUG[@VERSION]... [-m MESSAGE]
+[exit 2]
+
+$ kyp deploy support-bot prod triage=triage@0
+[stderr]
+kyp: VERSION in triage=triage@0 must be a positive integer, got "0"
+usage: kyp deploy APP ENV NAME=SLUG[@VERSION]... [-m MESSAGE]
+[exit 2]
+
+$ kyp deploy support-bot prod triage=triage@5
+[stderr]
+kyp: triage has no version 5
+hint: triage has versions 1 to 2
+[exit 4]
+
+$ kyp deploy support-bot prod a=triage a=escalation
+[stderr]
+kyp: prompt name "a" given twice
+usage: kyp deploy APP ENV NAME=SLUG[@VERSION]... [-m MESSAGE]
+[exit 2]
+
+$ kyp deploy nope prod triage
+[stderr]
+kyp: Not found: App not found. (HTTP 404 not-found)
+[exit 4]
+
+$ kyp rollback support-bot prod 5
+Rolled support-bot/prod back to revision 5 (now live as revision 8)
+  NAME    VERSION  SHA256
+  triage  v1       000000000000
+[exit 0]
+
+$ kyp rollback support-bot prod 99
+[stderr]
+kyp: Not found: Revision not found. (HTTP 404 not-found)
+[exit 4]
+
+$ kyp rollback support-bot prod
+[stderr]
+kyp: expected APP ENV REVISION
+usage: kyp rollback APP ENV REVISION
+[exit 2]
+

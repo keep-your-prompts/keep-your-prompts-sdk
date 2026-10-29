@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <RootNamespace>KeepYourPrompts</RootNamespace>
+    <AssemblyName>KeepYourPrompts.Sdk</AssemblyName>
+    <PackageId>KeepYourPrompts.Sdk</PackageId>
+    <Description>Keep Your Prompts client: serve deployed prompts from memory, keep them fresh in the background (CDN, origin, git and disk-cache mirrors, SHA-256 verified), and keep serving when the network does not.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsTrimmable Condition="'$(TargetFramework)' == 'net8.0'">true</IsTrimmable>
+    <IsAotCompatible Condition="'$(TargetFramework)' == 'net8.0'">true</IsAotCompatible>
+  </PropertyGroup>
+
+  <!-- net8.0 uses the BCL only; netstandard2.0 needs the System.Text.Json package (brings IAsyncDisposable). -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KeepYourPrompts.Sdk.Tests" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

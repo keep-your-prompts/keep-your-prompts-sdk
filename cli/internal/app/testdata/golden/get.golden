@@ -1,0 +1,54 @@
+$ kyp get greeting --app demo --snapshot ../../../conformance/fixtures/v12 --var name=Ana --var company=Acme
+Hello Ana, welcome to Acme.
+[no newline at end of stdout]
+[exit 0]
+
+$ kyp get greeting --app demo --snapshot ../../../conformance/fixtures/v12 --var name=Ana
+[stderr]
+kyp: missing template variable: company
+hint: pass each one with --var name=value (or --lenient to keep the placeholders)
+[exit 7]
+
+$ kyp get greeting --app demo --snapshot ../../../conformance/fixtures/v12 --var name=Ana --lenient
+Hello Ana, welcome to {{ company }}.
+[no newline at end of stdout]
+[exit 0]
+
+$ kyp get greeting --app demo --snapshot ../../../conformance/fixtures/v12 --raw
+Hello {{name}}, welcome to {{ company }}.
+[no newline at end of stdout]
+[exit 0]
+
+$ kyp get triage --app demo --snapshot ../../../conformance/fixtures/v12 --var company=Acme
+You are a support agent for Acme. Literal {{braces}} stay.
+[no newline at end of stdout]
+[exit 0]
+
+$ kyp get agents/reviewer --app demo --snapshot ../../../conformance/fixtures/v12
+Review the diff.
+[no newline at end of stdout]
+[exit 0]
+
+$ kyp get nope --app demo --snapshot ../../../conformance/fixtures/v12
+[stderr]
+kyp: prompt not found: "nope" (demo/prod revision 12)
+[exit 4]
+
+$ kyp get greeting --app demo --snapshot ../../../conformance/fixtures/v12 --var oops
+[stderr]
+kyp: --var "oops": want key=value
+usage: kyp get NAME [--var key=value]... [--app APP] [--env ENV] [--snapshot DIR]
+[exit 2]
+
+$ kyp get greeting --app demo
+[stderr]
+kyp: no prompts for demo/prod: no snapshot or disk cache found and no remote mirror configured (set KYP_DELIVERY_KEY, KYP_SNAPSHOT_DIR or embed a snapshot)
+hint: set KYP_DELIVERY_KEY (and KYP_APP), point --snapshot at a folder written by `kyp pull`, or check the network
+[exit 6]
+
+$ kyp get greeting
+[stderr]
+kyp: --app is required (or set KYP_APP)
+usage: kyp get NAME [--var key=value]... [--app APP] [--env ENV] [--snapshot DIR]
+[exit 2]
+

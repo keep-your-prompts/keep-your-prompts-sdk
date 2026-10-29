@@ -1,0 +1,66 @@
+{
+  "name": "@keepyourprompts/sdk",
+  "version": "0.1.0",
+  "description": "Keep Your Prompts SDK: deployed prompts served from memory, refreshed in the background, available when the network is not.",
+  "keywords": [
+    "prompts",
+    "llm",
+    "prompt-management",
+    "anthropic",
+    "openai",
+    "edge"
+  ],
+  "homepage": "https://keepyourprompts.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keep-your-prompts/keep-your-prompts-sdk.git",
+    "directory": "typescript"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "keepyourprompts": "./dist/cli.js",
+    "sdk": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

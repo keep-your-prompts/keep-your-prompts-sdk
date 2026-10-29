@@ -1,0 +1,61 @@
+$ kyp mcp
+# Claude Code: run
+claude mcp add --transport http kyp http://API/mcp --header "Authorization: Bearer kyp_live_…"
+
+# Cursor: ~/.cursor/mcp.json (all projects) or .cursor/mcp.json
+{
+  "mcpServers": {
+    "keep-your-prompts": {
+      "headers": {
+        "Authorization": "Bearer kyp_live_…"
+      },
+      "url": "http://API/mcp"
+    }
+  }
+}
+
+# VS Code: .vscode/mcp.json
+{
+  "servers": {
+    "keep-your-prompts": {
+      "headers": {
+        "Authorization": "Bearer kyp_live_…"
+      },
+      "type": "http",
+      "url": "http://API/mcp"
+    }
+  }
+}
+[stderr]
+
+Replace kyp_live_… with an API key (or re-run with --with-key after `kyp login`).
+[exit 0]
+
+$ kyp mcp --client vscode --with-key
+# VS Code: .vscode/mcp.json
+{
+  "servers": {
+    "keep-your-prompts": {
+      "headers": {
+        "Authorization": "Bearer kyp_live_testkey123"
+      },
+      "type": "http",
+      "url": "http://API/mcp"
+    }
+  }
+}
+[exit 0]
+
+$ kyp mcp --client emacs
+[stderr]
+kyp: --client must be claude-code, cursor or vscode
+usage: kyp mcp [--client claude-code|cursor|vscode] [--with-key]
+[exit 2]
+
+$ kyp mcp --client claude-code --json
+{
+  "claudeCode": "claude mcp add --transport http kyp http://API/mcp --header \"Authorization: Bearer kyp_live_…\"",
+  "url": "http://API/mcp"
+}
+[exit 0]
+

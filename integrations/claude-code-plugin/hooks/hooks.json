@@ -1,0 +1,17 @@
+{
+  "description": "Keep Your Prompts: send each prompt you type to your inbox (opt-in with KYP_CAPTURE=1 and KYP_API_KEY; secrets redacted locally; never blocks the prompt).",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$KYP_CAPTURE\" ] && [ -n \"$KYP_API_KEY\" ] && command -v node >/dev/null 2>&1 && exec node \"${CLAUDE_PLUGIN_ROOT}/scripts/capture.mjs\"; exit 0",
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

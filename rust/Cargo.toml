@@ -1,0 +1,62 @@
+[package]
+name = "keepyourprompts"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Keep Your Prompts SDK: read deployed prompts from memory, keep them fresh from mirrors (CDN, origin, git, snapshot, disk cache)."
+license-file = "../LICENSE"
+repository = "https://github.com/keep-your-prompts/keep-your-prompts-sdk"
+homepage = "https://keepyourprompts.com"
+documentation = "https://docs.rs/keepyourprompts"
+readme = "README.md"
+keywords = ["prompts", "llm", "cdn", "configuration", "templates"]
+categories = ["api-bindings", "config", "template-engine"]
+include = ["src/**", "examples/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
+
+[lib]
+name = "kyp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kyp-snapshot"
+path = "src/bin/kyp-snapshot.rs"
+required-features = ["blocking"]
+
+[[example]]
+name = "bench"
+required-features = ["blocking"]
+
+[[example]]
+name = "hello"
+required-features = ["blocking"]
+
+[[example]]
+name = "async_hello"
+required-features = ["tokio"]
+
+[features]
+default = ["blocking"]
+# Blocking HTTP(S) mirrors with ureq + rustls (a background thread polls).
+blocking = ["dep:ureq"]
+# kyp::AsyncClient: reqwest + rustls, the poller is a tokio task.
+tokio = ["dep:tokio", "dep:reqwest"]
+# Trust the OS certificate store instead of the bundled webpki roots (blocking client).
+native-certs = ["blocking", "ureq/native-certs"]
+
+[dependencies]
+arc-swap = "1.7"
+serde = "1"
+serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "2.10", optional = true, default-features = false, features = ["tls", "gzip"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1.38", optional = true, features = ["rt", "time", "sync", "macros"] }
+
+[dev-dependencies]
+proptest = { version = "1.4", default-features = false, features = ["std"] }
+tiny_http = "0.12"
+tempfile = "3.10"
+tokio = { version = "1.38", features = ["rt-multi-thread", "time", "sync", "macros"] }
+
+[package.metadata.docs.rs]
+all-features = true

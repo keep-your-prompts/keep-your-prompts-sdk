@@ -1,0 +1,34 @@
+{
+ "schema": 1,
+ "workspace": "acme",
+ "app": "demo",
+ "env": "prod",
+ "revision": 14,
+ "deployed_at": "2026-10-29T09:00:00Z",
+ "prompts": {
+  "greeting": {
+   "sha256": "fcadfa6b70f5b153be065e4f32dc011328b1aff4749fb3b748bba68a60c0838e",
+   "version": 6,
+   "variables": [
+    "name"
+   ]
+  },
+  "triage": {
+   "sha256": "f31befda9f5a0fed97bb07f8164baf8673f4342fcca9ad37d59dafaacefc53bf",
+   "version": 7,
+   "variables": [
+    "company"
+   ]
+  },
+  "agents/reviewer": {
+   "sha256": "cd952634e4090147e67501128bd1b92e8a54b749568ada27af25a86a31b70059",
+   "version": 2,
+   "variables": []
+  },
+  "empty": {
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "version": 1,
+   "variables": []
+  }
+ }
+}

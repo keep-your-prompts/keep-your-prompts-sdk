@@ -1,0 +1,13 @@
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    tmpDir: .phpstan.cache
+    ignoreErrors:
+        # The test drives the provider with a bare Illuminate container instead of a full
+        # Laravel Application (illuminate/foundation is not a standalone package).
+        -
+            identifier: argument.type
+            path: tests/Unit/LaravelTest.php
+            count: 2

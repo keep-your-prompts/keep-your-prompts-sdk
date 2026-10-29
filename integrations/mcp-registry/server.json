@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.keepyourprompts/mcp",
+  "title": "Keep Your Prompts",
+  "description": "Search, reuse, save, version and deploy your prompts and agent skills. Sign in with OAuth.",
+  "version": "0.1.0",
+  "websiteUrl": "https://keepyourprompts.com",
+  "repository": {
+    "url": "https://github.com/keep-your-prompts/keep-your-prompts-sdk",
+    "source": "github",
+    "subfolder": "integrations"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.keepyourprompts.com/mcp"
+    }
+  ]
+}

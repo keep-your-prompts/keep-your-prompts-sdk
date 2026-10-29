@@ -1,0 +1,6 @@
+$ kyp deploy support-bot prod triage
+[stderr]
+kyp: Quota reached: The free plan includes 3 apps. (HTTP 429 quota-exceeded)
+hint: upgrade at https://app.keepyourprompts.com/settings/billing
+[exit 8]
+

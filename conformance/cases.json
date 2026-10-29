@@ -1,0 +1,26 @@
+{
+  "render": [
+    { "template": "Hello {{name}}", "vars": { "name": "Ana" }, "out": "Hello Ana" },
+    { "template": "{{ a }}-{{b}}", "vars": { "a": "1", "b": "2" }, "out": "1-2" },
+    { "template": "use {{{{name}} syntax", "vars": {}, "out": "use {{name}} syntax" },
+    { "template": "{{a}}", "vars": { "a": "{{b}}", "b": "x" }, "out": "{{b}}" },
+    { "template": "no vars", "vars": { "unused": "x" }, "out": "no vars" },
+    { "template": "{{missing}}", "vars": {}, "error": "missing_variable", "variable": "missing" },
+    { "template": "{{missing}} stays", "vars": {}, "lenient": true, "out": "{{missing}} stays" },
+    { "template": "{{ 9bad }} {{ok_1}}", "vars": { "ok_1": "y" }, "out": "{{ 9bad }} y" },
+    { "template": "é {{name}} 日本", "vars": { "name": "Zoë" }, "out": "é Zoë 日本" }
+  ],
+  "variables": [
+    { "template": "Hi {{name}}, {{ name }} from {{company}}. {{{{not_a_var}}", "out": ["name", "company"] }
+  ],
+  "manifest": [
+    { "file": "fixtures/v12/envs/demo/prod.json", "valid": true, "prompts": ["agents/reviewer", "empty", "greeting", "triage"] },
+    { "json": { "schema": 2, "workspace": "a", "app": "demo", "env": "prod", "revision": 1, "deployed_at": "x", "prompts": {} }, "valid": false, "why": "unknown schema version" },
+    { "json": { "schema": 1, "workspace": "a", "app": "demo", "env": "prod", "revision": 1, "deployed_at": "x", "prompts": { "p": { "sha256": "XYZ", "version": 1 } } }, "valid": false, "why": "bad sha256" },
+    { "json": { "schema": 1, "workspace": "a", "app": "demo", "env": "prod", "revision": 1, "deployed_at": "x", "future_field": true, "prompts": { "p": { "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "version": 1, "future": 1 } } }, "valid": true, "why": "unknown fields are ignored; variables default to []" }
+  ],
+  "sha256": [
+    { "in": "", "out": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "in": "abc", "out": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" }
+  ]
+}

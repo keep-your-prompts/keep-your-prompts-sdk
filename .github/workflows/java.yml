@@ -1,0 +1,81 @@
+name: java
+
+on:
+  push:
+    branches: [main]
+    tags: ['java-v*']
+    paths: ['java/**', 'conformance/**', 'protocol/**', '.github/workflows/java.yml']
+  pull_request:
+    paths: ['java/**', 'conformance/**', 'protocol/**', '.github/workflows/java.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: java-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: java
+    shell: bash
+
+jobs:
+  test:
+    name: test (JDK ${{ matrix.java }})
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21', '25']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          # One Maven repository cache, keyed on the pom (shared by every matrix entry).
+          cache: maven
+          cache-dependency-path: java/pom.xml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: mvn verify (unit, cases.json, in-JVM fake CDN and conformance/fake_cdn.py)
+        run: mvn -B -ntp verify
+      - name: Kotlin usage test
+        if: matrix.java == '21'
+        run: mvn -B -ntp -Pkotlin test -Dtest=KotlinUsageTest -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Javadoc and sources build
+        if: matrix.java == '21'
+        run: mvn -B -ntp -Prelease -Dgpg.skip -DskipTests package
+
+  publish:
+    name: publish to Maven Central
+    if: startsWith(github.ref, 'refs/tags/java-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: java/pom.xml
+          # Writes ~/.m2/settings.xml with server "central" and imports the signing key.
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Check the tag matches the pom version
+        run: |
+          version=$(mvn -B -q help:evaluate -Dexpression=project.version -DforceStdout)
+          test "java-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != pom ${version}"; exit 1; }
+      - name: Deploy (sources, javadoc, signatures; Sonatype Central Portal)
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -ntp -Prelease -DskipTests deploy

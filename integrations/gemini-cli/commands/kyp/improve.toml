@@ -1,0 +1,10 @@
+description = "Improve a saved prompt, show the diff, and save it as a new version after you approve."
+prompt = """
+Improve a prompt from the user's Keep Your Prompts library. Arguments: {{args}}
+(first: the handle; the rest: what to improve, optional)
+
+1. Call `get_prompt` for the handle. Note its version and its variables.
+2. Write an improved version: clearer task and constraints, explicit output format, no filler. Keep every existing variable unless asked; if you add or remove one, say so (callers would break).
+3. Show at most 3 bullets of critique and the changes as a diff.
+4. Only after the user approves, call `update_prompt` with the new body, `baseVersion` set to the version you read, and a one-line `message`. Report the new version.
+"""

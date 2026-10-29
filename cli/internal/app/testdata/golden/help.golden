@@ -1,0 +1,134 @@
+$ kyp 
+[stderr]
+kyp 0.1.0: Keep Your Prompts from the command line.
+
+Usage: kyp <command> [arguments] [flags]
+
+Prompts in your app (delivery key: KYP_DELIVERY_KEY):
+  pull       Write the deployed prompts of an app environment to a snapshot (uses KYP_DELIVERY_KEY).
+  get        Print a deployed prompt, rendered, from a snapshot folder or the delivery mirrors.
+
+Your workspace (API key: kyp login or KYP_API_KEY):
+  login      Store a workspace API key (kyp_live_…) in the OS config folder, readable only by you.
+  logout     Remove the stored API key.
+  search     Search prompts (full text and semantic).
+  ls         List the prompts in your workspace.
+  show       Print a prompt's body (details go to stderr).
+  push       Create a prompt from FILE (- for stdin), or save it as a new version of an existing one.
+  diff       Word diff between two versions of a prompt (red: removed, green: added).
+  deploy     Deploy prompt versions to an app environment (a new revision; apps pick it up within seconds).
+  rollback   Roll an app environment back to an earlier revision (published as a new revision).
+  capture    Send text from stdin to the workspace Inbox, to promote into a prompt later.
+
+Other:
+  mcp        Print MCP server config for Claude Code, Cursor and VS Code.
+  version    Print the kyp version.
+
+Every command takes --json (machine-readable output) and --color=auto|always|never.
+Run "kyp help <command>" for its flags. Exit codes: 0 ok, 1 error, 2 usage, 3 auth,
+4 not found, 5 conflict, 6 unavailable, 7 invalid input, 8 quota.
+[exit 2]
+
+$ kyp help
+kyp 0.1.0: Keep Your Prompts from the command line.
+
+Usage: kyp <command> [arguments] [flags]
+
+Prompts in your app (delivery key: KYP_DELIVERY_KEY):
+  pull       Write the deployed prompts of an app environment to a snapshot (uses KYP_DELIVERY_KEY).
+  get        Print a deployed prompt, rendered, from a snapshot folder or the delivery mirrors.
+
+Your workspace (API key: kyp login or KYP_API_KEY):
+  login      Store a workspace API key (kyp_live_…) in the OS config folder, readable only by you.
+  logout     Remove the stored API key.
+  search     Search prompts (full text and semantic).
+  ls         List the prompts in your workspace.
+  show       Print a prompt's body (details go to stderr).
+  push       Create a prompt from FILE (- for stdin), or save it as a new version of an existing one.
+  diff       Word diff between two versions of a prompt (red: removed, green: added).
+  deploy     Deploy prompt versions to an app environment (a new revision; apps pick it up within seconds).
+  rollback   Roll an app environment back to an earlier revision (published as a new revision).
+  capture    Send text from stdin to the workspace Inbox, to promote into a prompt later.
+
+Other:
+  mcp        Print MCP server config for Claude Code, Cursor and VS Code.
+  version    Print the kyp version.
+
+Every command takes --json (machine-readable output) and --color=auto|always|never.
+Run "kyp help <command>" for its flags. Exit codes: 0 ok, 1 error, 2 usage, 3 auth,
+4 not found, 5 conflict, 6 unavailable, 7 invalid input, 8 quota.
+[exit 0]
+
+$ kyp help deploy
+Usage: kyp deploy APP ENV NAME=SLUG[@VERSION]... [-m MESSAGE]
+
+Deploy prompt versions to an app environment (a new revision; apps pick it up within seconds).
+
+Flags:
+  --api-url string       API base URL (default $KYP_API_URL or https://api.keepyourprompts.com)
+  --color string         colour output: auto, always or never (default auto)
+  --json                 print JSON
+  -m string              same as --message
+  --message string       deploy message
+[exit 0]
+
+$ kyp push --help
+Usage: kyp push FILE --name NAME [--slug SLUG] [-m MESSAGE] [--base N]
+
+Create a prompt from FILE (- for stdin), or save it as a new version of an existing one.
+
+Flags:
+  --api-url string       API base URL (default $KYP_API_URL or https://api.keepyourprompts.com)
+  --base int             the version your edit started from (default: the current version); an older one fails with a conflict
+  --color string         colour output: auto, always or never (default auto)
+  --json                 print JSON
+  --kind string          kind when creating: prompt, system_prompt, skill, agent, mcp_config, snippet or test_set (default prompt)
+  -m string              same as --message
+  --message string       version message
+  --name string          display name (required to create; default slug derives from it)
+  --slug string          prompt slug, e.g. support/triage (default: from --name)
+[exit 0]
+
+$ kyp nope
+[stderr]
+kyp: unknown command "nope"
+
+kyp 0.1.0: Keep Your Prompts from the command line.
+
+Usage: kyp <command> [arguments] [flags]
+
+Prompts in your app (delivery key: KYP_DELIVERY_KEY):
+  pull       Write the deployed prompts of an app environment to a snapshot (uses KYP_DELIVERY_KEY).
+  get        Print a deployed prompt, rendered, from a snapshot folder or the delivery mirrors.
+
+Your workspace (API key: kyp login or KYP_API_KEY):
+  login      Store a workspace API key (kyp_live_…) in the OS config folder, readable only by you.
+  logout     Remove the stored API key.
+  search     Search prompts (full text and semantic).
+  ls         List the prompts in your workspace.
+  show       Print a prompt's body (details go to stderr).
+  push       Create a prompt from FILE (- for stdin), or save it as a new version of an existing one.
+  diff       Word diff between two versions of a prompt (red: removed, green: added).
+  deploy     Deploy prompt versions to an app environment (a new revision; apps pick it up within seconds).
+  rollback   Roll an app environment back to an earlier revision (published as a new revision).
+  capture    Send text from stdin to the workspace Inbox, to promote into a prompt later.
+
+Other:
+  mcp        Print MCP server config for Claude Code, Cursor and VS Code.
+  version    Print the kyp version.
+
+Every command takes --json (machine-readable output) and --color=auto|always|never.
+Run "kyp help <command>" for its flags. Exit codes: 0 ok, 1 error, 2 usage, 3 auth,
+4 not found, 5 conflict, 6 unavailable, 7 invalid input, 8 quota.
+[exit 2]
+
+$ kyp version
+kyp 0.1.0 (sdk 0.1.0, GOVERSION, OS/ARCH)
+[exit 0]
+
+$ kyp ls --bogus
+[stderr]
+kyp: flag provided but not defined: -bogus
+usage: kyp ls [--kind KIND] [--limit N]
+[exit 2]
+

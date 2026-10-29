@@ -1,0 +1,61 @@
+$ kyp ls
+SLUG             KIND    VERSION  UPDATED           NAME
+triage           prompt  v2       2026-10-12 10:30  Support triage
+agents/reviewer  agent   v1       2026-10-11 10:30  Code reviewer
+escalation       prompt  v1       2026-10-11 10:30  Escalation
+[exit 0]
+
+$ kyp ls --limit 2
+SLUG             KIND    VERSION  UPDATED           NAME
+triage           prompt  v2       2026-10-12 10:30  Support triage
+agents/reviewer  agent   v1       2026-10-11 10:30  Code reviewer
+[exit 0]
+
+$ kyp search support agent
+SLUG    KIND    VERSION  SCORE  NAME
+triage  prompt  v2       0.87   Support triage
+                                  You are a friendly support agent for {{company}}. Route billing to {{billing_queue}}.
+[exit 0]
+
+$ kyp search zebra
+[stderr]
+No prompts match "zebra".
+[exit 0]
+
+$ kyp search
+[stderr]
+kyp: expected a QUERY
+usage: kyp search QUERY... [--limit N] [--scope mine|public|all]
+[exit 2]
+
+$ kyp show triage
+You are a friendly support agent for {{company}}. Route billing to {{billing_queue}}.
+[stderr]
+Support triage (triage) v2 of 2, updated 2026-10-12 10:30
+variables: company, billing_queue
+[exit 0]
+
+$ kyp show triage --version 1
+You are a support agent for {{company}}.
+[stderr]
+Support triage (triage) v1 of 2, First version by Ana, 2026-10-02 08:00
+[exit 0]
+
+$ kyp show triage --version 9
+[stderr]
+kyp: triage has no version 9
+hint: triage has versions 1 to 2
+[exit 4]
+
+$ kyp show agents/reviewer
+Review the diff.
+[stderr]
+Code reviewer (agents/reviewer) v1 of 1, updated 2026-10-11 10:30
+[exit 0]
+
+$ kyp show nope
+[stderr]
+kyp: no prompt "nope" in this workspace
+hint: list your prompts with `kyp ls` or `kyp search`
+[exit 4]
+

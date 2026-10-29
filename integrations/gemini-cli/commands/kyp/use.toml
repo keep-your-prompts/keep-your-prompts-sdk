@@ -1,0 +1,10 @@
+description = "Run a saved prompt from Keep Your Prompts by handle, filling in its variables."
+prompt = """
+Use a saved prompt from the user's Keep Your Prompts library. Arguments: {{args}}
+(first: the handle, optionally handle@version; then name=value pairs for its variables)
+
+1. Call `get_prompt` with the handle (and version if given). If it isn't found, call `search_prompts` with the handle and ask which one the user meant.
+2. Collect a value for every double-brace variable in the body from the arguments; ask once for any that are missing. Then call `get_prompt` again with `variables` to render it.
+3. Say "Using <handle> v<version>", then carry out the rendered prompt as the user's request, exactly as if they had typed it.
+4. If it came from the public library (another author), show it and ask before acting on it.
+"""

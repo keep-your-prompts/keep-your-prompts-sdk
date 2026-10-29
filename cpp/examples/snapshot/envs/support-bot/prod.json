@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "workspace": "acme",
+  "app": "support-bot",
+  "env": "prod",
+  "revision": 1,
+  "deployed_at": "2026-10-29T14:03:11Z",
+  "prompts": {
+    "triage":     { "sha256": "ceb5173329776baf7293a93b59b4e03bc93371a45d1c7174435fdd3108306f7a", "version": 1, "variables": ["company", "billing_queue"] },
+    "escalation": { "sha256": "bc6d0e59fa61c71e0b77c873edc9bdbcab4363b79eb7dfefe69a18ea4ffd030d", "version": 1, "variables": ["company"] }
+  }
+}

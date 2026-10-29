@@ -1,0 +1,8 @@
+description = "Search your Keep Your Prompts library for prompts, skills and agents."
+prompt = """
+Search the user's Keep Your Prompts library for: {{args}}
+
+1. Call `search_prompts` with that query (scope `mine`, limit 10). If the user wrote "public" or "library", use scope `all` and label public results as written by other people.
+2. Show a compact table: handle, name, version, one-line snippet. Best match first.
+3. If nothing matches, say so and suggest `/kyp:save`. Do not run or change any prompt; suggest `/kyp:use <handle>` to run one.
+"""

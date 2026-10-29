@@ -1,0 +1,30 @@
+$ kyp diff triage 1 2
+triage v1 -> v2
+You are a {+friendly +}support agent for {{company}}.{+ Route billing to {{billing_queue}}.+}
+variables: +billing_queue
+[exit 0]
+
+$ kyp diff triage 1 2 --color always
+triage v1 -> v2
+You are a [32mfriendly [0msupport agent for {{company}}.[32m Route billing to {{billing_queue}}.[0m
+variables: [32m+billing_queue[0m
+[exit 0]
+
+$ kyp diff triage 1 7
+[stderr]
+kyp: triage has no version 7
+hint: triage has versions 1 to 2
+[exit 4]
+
+$ kyp diff triage x 2
+[stderr]
+kyp: FROM must be a positive integer, got "x"
+usage: kyp diff SLUG FROM TO
+[exit 2]
+
+$ kyp diff triage
+[stderr]
+kyp: expected SLUG FROM TO (version numbers)
+usage: kyp diff SLUG FROM TO
+[exit 2]
+

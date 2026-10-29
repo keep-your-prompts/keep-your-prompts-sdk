@@ -1,0 +1,134 @@
+# Root ignore list. Each SDK folder may add its own .gitignore; this file covers all of them.
+#
+# Lockfiles: typescript/package-lock.json IS committed (CI runs `npm ci`). The libraries resolve
+# dependencies fresh in CI and do not commit lockfiles: rust/Cargo.lock, php/composer.lock,
+# ruby/Gemfile.lock, Package.resolved (see the per-language workflows).
+
+# --- OS and editors ---------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+.vs/
+*.user
+*.suo
+
+# --- secrets and local configuration ---------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+.pypirc
+*.gpg
+!*.pub.gpg
+
+# --- logs, coverage, temp ---------------------------------------------------
+*.log
+coverage/
+.nyc_output/
+*.lcov
+.coverage
+.coverage.*
+htmlcov/
+TestResults/
+tmp/
+*.tmp
+
+# --- LICENSE copies made by release workflows (the root LICENSE is the only one) ---
+/typescript/LICENSE
+/python/LICENSE
+/ruby/LICENSE
+
+# --- C++ (cpp/) -------------------------------------------------------------
+/cpp/build*/
+/cpp/out/
+/cpp/cmake-build-*/
+/cpp/.cache/
+/cpp/compile_commands.json
+CMakeUserPresets.json
+
+# --- TypeScript / JavaScript ------------------------------------------------
+node_modules/
+/typescript/dist/
+*.tgz
+*.tsbuildinfo
+.vitest/
+.npm/
+
+# --- Python -----------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/python/dist/
+/python/build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+
+# --- Go and the kyp CLI -----------------------------------------------------
+/cli/dist/
+/cli/kyp
+/cli/kyp.exe
+go.work.sum
+*.test
+*.out
+*.prof
+
+# --- Java / Kotlin ----------------------------------------------------------
+/java/target/
+.gradle/
+.kotlin/
+
+# --- .NET -------------------------------------------------------------------
+/dotnet/**/bin/
+/dotnet/**/obj/
+/dotnet/artifacts/
+*.nupkg
+*.snupkg
+
+# --- Rust -------------------------------------------------------------------
+/rust/target/
+/rust/Cargo.lock
+
+# --- Swift (package manifest at the root) ------------------------------------
+/.build/
+/.swiftpm/
+/swift/.build/
+/swift/.swiftpm/
+/Package.resolved
+xcuserdata/
+DerivedData/
+
+# --- PHP --------------------------------------------------------------------
+/php/vendor/
+/php/composer.lock
+/php/.phpunit.cache/
+/php/.phpunit.result.cache
+/php/.phpstan.cache/
+
+# --- Ruby -------------------------------------------------------------------
+/ruby/vendor/
+/ruby/.bundle/
+/ruby/Gemfile.lock
+/ruby/pkg/
+*.gem
+
+# --- Integrations: built bundles and uploads ---------------------------------
+/integrations/**/dist/
+*.mcpb
+*.zip
