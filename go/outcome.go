@@ -36,7 +36,10 @@ const (
 
 // Outcome is one use of a deployed prompt, reported with RecordOutcome.
 type Outcome struct {
-	Prompt       string      // prompt name, e.g. "triage"
+	Prompt string // prompt name, e.g. "triage"
+	// Meta, when set, pins the body that was used (from Meta or RenderWithMeta):
+	// its name and sha256 are reported even if a newer revision arrived since.
+	Meta         *PromptMeta
 	Result       OutcomeKind // success, failure, feedback_positive, feedback_negative
 	Latency      time.Duration
 	InputTokens  int
@@ -91,16 +94,22 @@ func (c *Client) RecordOutcome(o Outcome) error {
 	if c.outcomes == nil {
 		return ErrOutcomesDisabled
 	}
-	p, err := c.find(o.Prompt)
-	if err != nil {
-		return err
+	name, sha, env := o.Prompt, "", c.opts.Env
+	if o.Meta != nil {
+		name, sha, env = o.Meta.Name, o.Meta.SHA256, o.Meta.Env
+	} else {
+		p, err := c.find(o.Prompt)
+		if err != nil {
+			return err
+		}
+		sha = p.SHA256
 	}
 	switch o.Result {
 	case OutcomeSuccess, OutcomeFailure, OutcomeFeedbackPositive, OutcomeFeedbackNegative:
 	default:
 		return fmt.Errorf("kyp: unknown outcome %q", o.Result)
 	}
-	rec := outcomeRecord{Env: c.opts.Env, Prompt: o.Prompt, SHA256: p.SHA256, Outcome: string(o.Result)}
+	rec := outcomeRecord{Env: env, Prompt: name, SHA256: sha, Outcome: string(o.Result)}
 	if o.Latency > 0 {
 		ms := o.Latency.Milliseconds()
 		rec.LatencyMs = &ms

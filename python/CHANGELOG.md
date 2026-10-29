@@ -18,3 +18,6 @@ First release.
 - `python -m keepyourprompts snapshot` CLI and `pull_snapshot()`.
 - Pure helpers: `render_template`, `template_variables`, `parse_manifest`, `sha256_hex`.
 - Python 3.9+, standard library only; optional `httpx` extra; type hints and `py.typed`.
+- Observability ([`protocol/tracing.md`](../protocol/tracing.md)): `meta()`, `render_with_meta()`, `PromptMeta`
+  attribute and Langfuse/LangSmith metadata dicts, `Observer` / `add_observer()`, `report()` accepting prompt
+  metadata, and `keepyourprompts.otel` (`instrument`, `annotate`) behind the `otel` extra.

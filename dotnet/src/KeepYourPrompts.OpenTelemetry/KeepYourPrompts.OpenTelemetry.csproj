@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <RootNamespace>KeepYourPrompts.OpenTelemetry</RootNamespace>
+    <PackageId>KeepYourPrompts.OpenTelemetry</PackageId>
+    <Description>OpenTelemetry for Keep Your Prompts: kyp.* and gen_ai.prompt.* attributes on your LLM activities, kyp.refresh activities and kyp.* metrics (ActivitySource and Meter "keepyourprompts").</Description>
+    <PackageTags>$(PackageTags);opentelemetry;observability;tracing</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsTrimmable Condition="'$(TargetFramework)' == 'net8.0'">true</IsTrimmable>
+    <IsAotCompatible Condition="'$(TargetFramework)' == 'net8.0'">true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../KeepYourPrompts.Sdk/KeepYourPrompts.Sdk.csproj" />
+    <!-- TracerProviderBuilder / MeterProviderBuilder extensions; brings System.Diagnostics.DiagnosticSource 9. -->
+    <PackageReference Include="OpenTelemetry.Api.ProviderBuilderExtensions" Version="1.20.1" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

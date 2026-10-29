@@ -2,7 +2,9 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts' },
+    entry: { index: 'src/index.ts', otel: 'src/otel.ts' },
+    // @opentelemetry/api is an optional peer dependency: never bundled.
+    external: ['@opentelemetry/api'],
     format: ['esm', 'cjs'],
     dts: true,
     target: 'es2022',

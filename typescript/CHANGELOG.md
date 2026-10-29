@@ -17,3 +17,6 @@ First release.
 - `snapshot` CLI: `npx @keepyourprompts/sdk snapshot --app … --env … --out … [--format folder|module]`.
 - Pure helpers: `renderTemplate`, `templateVariables`, `parseManifest`, `sha256Hex`.
 - ESM and CommonJS builds with type declarations; zero runtime dependencies.
+- Observability ([`protocol/tracing.md`](../protocol/tracing.md)): `meta()`, `renderWithMeta()`, `PromptMeta`
+  attribute and Langfuse/LangSmith metadata maps, `addObserver()`, `report()` accepting prompt metadata, and the
+  `@keepyourprompts/sdk/otel` entry point (`instrument`, `annotate`; `@opentelemetry/api` as an optional peer).

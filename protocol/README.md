@@ -108,3 +108,8 @@ Points that implementing the SDKs showed were ambiguous above. They are part of 
      `outputTokens` are optional non-negative integers. The server aggregates by app, env, prompt, sha256 and hour.
    - Response: `202` with no body. `422` (problem+JSON) for an invalid event or more than 500 (the whole request is rejected), `401` for a bad key, `404` for an unknown app.
    - Clients buffer events in memory (bounded, dropping the oldest when full), send them in the background in batches of at most 500, and never block or throw on the read path. Failures are silent apart from a log line: a `429` or `5xx` batch may be retried later within the buffer bound; any other `4xx` batch is dropped.
+
+## Tracing and observability
+
+Span attributes, metadata maps, SDK spans and metrics shared by every SDK (`kyp.prompt.name`, `kyp.prompt.version`,
+`kyp.prompt.sha256`, `kyp.source`, ...) are specified in [`tracing.md`](tracing.md). They are not part of delivery.

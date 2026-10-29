@@ -49,6 +49,29 @@ jobs:
           KYP_PYTHON: ${{ runner.os == 'Windows' && 'python' || 'python3' }}
         run: go test -race -count=1 ./...
 
+  otel:
+    name: go/otel (go ${{ matrix.go }})
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [stable, '1.23'] # 1.23: the minimum in go/otel/go.mod
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go/otel
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: go/otel/go.sum
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - name: go test -race (in-memory OpenTelemetry exporters)
+        run: go test -race -count=1 ./...
+
   lint:
     runs-on: ubuntu-latest
     steps:

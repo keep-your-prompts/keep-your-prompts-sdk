@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from ._engine import Engine
 from ._io import post_json
+from ._telemetry import meta_of
 
 OUTCOME_KINDS = ("success", "failure", "feedback_positive", "feedback_negative")
 BATCH = 500  # the API accepts at most 500 events per request
@@ -61,7 +62,7 @@ class OutcomeBuffer:
 
 def make_event(
     engine: Engine,
-    prompt: str,
+    prompt: Any,
     outcome: str,
     latency_ms: Any = None,
     input_tokens: Any = None,
@@ -71,6 +72,10 @@ def make_event(
     if outcome not in OUTCOME_KINDS:
         engine.log(logging.WARNING, 'report: unknown outcome "%s" (use %s)' % (outcome, ", ".join(OUTCOME_KINDS)))
         return None
+    meta = meta_of(prompt)  # PromptMeta or Rendered: the body that was actually used
+    env = engine.env
+    if meta is not None:
+        prompt, sha256, env = meta.name, meta.sha256, meta.env
     if sha256 is None:
         s = engine.state
         p = s.prompts.get(prompt) if s is not None else None
@@ -78,7 +83,7 @@ def make_event(
             engine.log(logging.DEBUG, 'report: prompt "%s" is not deployed; dropped' % prompt)
             return None
         sha256 = p.sha256
-    e: Dict[str, Any] = {"env": engine.env, "prompt": prompt, "sha256": sha256, "outcome": outcome}
+    e: Dict[str, Any] = {"env": env, "prompt": prompt, "sha256": sha256, "outcome": outcome}
     for k, v in (("latencyMs", latency_ms), ("inputTokens", input_tokens), ("outputTokens", output_tokens)):
         c = _count(v)
         if c is not None:

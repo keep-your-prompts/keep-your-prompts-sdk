@@ -15,12 +15,14 @@ string system = prompts.Render("triage", new Dictionary<string, string> { ["comp
 | --- | --- |
 | `KeepYourPrompts.Sdk` | The client. |
 | `KeepYourPrompts.Extensions.DependencyInjection` | `services.AddKeepYourPrompts()` for ASP.NET Core and the generic host (depends on the `Microsoft.Extensions.*.Abstractions` packages only). |
+| `KeepYourPrompts.OpenTelemetry` | Activities, metrics and `Annotate` for OpenTelemetry (see Observability; depends on `OpenTelemetry.Api.ProviderBuilderExtensions`). |
 
 ## Install
 
 ```sh
 dotnet add package KeepYourPrompts.Sdk
 dotnet add package KeepYourPrompts.Extensions.DependencyInjection   # ASP.NET Core
+dotnet add package KeepYourPrompts.OpenTelemetry                    # OpenTelemetry (optional)
 ```
 
 ## Quickstart
@@ -59,6 +61,8 @@ bool ok       = await prompts.RefreshAsync();                                   
 | `bool TryGet(string name, out string text)`, `bool Contains(string name)` | |
 | `Prompt Prompt(string name)` | `Name`, `Version`, `Sha256`, `Variables`, `Text`, `Render(vars)`. |
 | `string Render(string name, IReadOnlyDictionary<string, string>? vars, OnMissing onMissing = OnMissing.Error)` | Throws `PromptNotFoundException` or `MissingVariableException` (`.Names` lists every missing variable). `OnMissing.Keep` leaves `{{name}}`, `Empty` drops it. |
+| `PromptMeta Meta(string name)`, `Rendered RenderWithMeta(string name, vars, onMissing)` | Prompt metadata; see Observability. |
+| `IDisposable AddObserver(IKypObserver)`, `KeepYourPromptsOptions.Observers` | Delivery telemetry hook (refresh rounds, render errors). |
 | `IReadOnlyList<string> Names`, `long Revision` | Current revision, 0 when nothing is loaded. |
 | `ClientStatus Status` | `Ready`, `Source`, `Revision`, `Workspace`, `DeployedAt`, `PromptCount`, `LastSuccess`, `LastError`, `StaleFor`, `Mirrors` (per mirror: `Name`, `Url`, `ConsecutiveFailures`, `LastError`, `LastSuccess`). |
 | `Task<bool> RefreshAsync(CancellationToken)` | Revalidate now, ignoring backoff. `true` if a mirror answered. |
@@ -176,6 +180,57 @@ foreach (var text in response.Content.Select(b => b.Value).OfType<TextBlock>())
 ```
 
 Editing and deploying `triage` in Keep Your Prompts changes what the next request sends, without redeploying your service. Log `prompts.Prompt("triage").Version` next to each request to know which version produced an answer.
+
+## Observability
+
+Link every LLM call to the exact prompt version it used, and watch delivery health, with the names shared by every
+Keep Your Prompts SDK ([`protocol/tracing.md`](../protocol/tracing.md)).
+
+**Metadata, no dependency.** `Meta(name)` and `RenderWithMeta(name, vars)` read memory only, like `Render`:
+
+```csharp
+var r = prompts.RenderWithMeta("triage", new Dictionary<string, string> { ["company"] = "Acme" });
+// r.Text: the rendered prompt
+// r.Meta: Name "triage", Version 7, Sha256 "f31b…", App, Env, Workspace, Revision 42, Source "cdn"
+r.Meta.Attributes();        // kyp.prompt.name, kyp.prompt.version, …, gen_ai.prompt.name, gen_ai.prompt.version ("7")
+r.Meta.LangfuseMetadata();  // kyp_prompt_name, kyp_prompt_version, kyp_prompt_sha256, … (flat keys)
+r.Meta.LangSmithMetadata(); // the same flat map
+```
+
+**OpenTelemetry** is the separate package `KeepYourPrompts.OpenTelemetry` (the SDK keeps zero dependencies). It
+uses an `ActivitySource` and a `Meter` named `keepyourprompts`:
+
+```csharp
+using KeepYourPrompts.OpenTelemetry;
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddKeepYourPromptsInstrumentation() /* .AddOtlpExporter() */)
+    .WithMetrics(m => m.AddKeepYourPromptsInstrumentation());
+
+var otel = prompts.AddOpenTelemetry();   // kyp.refresh activities + kyp.* metrics for this client
+
+using var activity = source.StartActivity("chat triage");  // or the activity your model instrumentation created
+var r = prompts.RenderWithMeta("triage", vars);
+otel.Annotate(r);   // kyp.prompt.name/version/sha256, kyp.app/env/revision/workspace/source, gen_ai.prompt.* on Activity.Current
+```
+
+- `Annotate(name | meta | rendered, activity?, variables?)`; `activity.SetPromptAttributes(meta, ...)` works without
+  an instrumentation.
+- The instrumentation records a `kyp.refresh` activity per refresh round that changed something or had trouble
+  (events `kyp.fallback`, `kyp.hash_mismatch`, `kyp.update`; `RefreshAsync` joins the current trace) and the metrics
+  `kyp.refresh.duration`, `kyp.staleness`, `kyp.revision`, `kyp.fallbacks`, `kyp.hash_mismatches`,
+  `kyp.render.errors`. To see the start-up round too, add `new KeepYourPromptsInstrumentation()` to
+  `KeepYourPromptsOptions.Observers` before `CreateAsync`, then call `Attach(client)`.
+- `KeepYourPromptsInstrumentationOptions`: `CaptureContent`, `GenAiAttributes` (default `true`), `OpenInference`
+  (adds `prompt.vendor`, `prompt.id`, `llm.prompt_template.version` for Arize Phoenix), `TraceAllRefreshes`.
+  Dispose the instrumentation to detach it.
+- Without OpenTelemetry, implement `IKypObserver` (`OnRefresh`, `OnRenderError`) and pass it to `AddObserver`.
+
+> **Privacy.** By default no prompt text and no variable value leaves your process. `CaptureContent = true` (or
+> `KYP_OTEL_CAPTURE_CONTENT=true`) adds the template (`kyp.prompt.template`) and every variable passed to `Annotate`
+> (`gen_ai.prompt.variable.<name>`) to your activities. Variable values often contain personal data or customer
+> content, and they then reach every backend your traces go to, under its retention and access rules. Turn it on
+> only where that is acceptable.
 
 ## Build and test
 

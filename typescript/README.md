@@ -10,7 +10,7 @@ const system = prompts.render('triage', { company: 'Acme', billing_queue: 'refun
 ```
 
 - npm package `@keepyourprompts/sdk`, version 0.1.0. ESM and CommonJS builds with type declarations.
-- Zero runtime dependencies. Uses the global `fetch` and Web Crypto, so it runs on Node 18+, Bun, Deno, Cloudflare Workers, Vercel Edge and in browsers.
+- Zero runtime dependencies (`@opentelemetry/api` is an optional peer, only for `@keepyourprompts/sdk/otel`). Uses the global `fetch` and Web Crypto, so it runs on Node 18+, Bun, Deno, Cloudflare Workers, Vercel Edge and in browsers.
 - Implements [prompt delivery protocol v1](../protocol/README.md) and passes every required behaviour of the [conformance suite](../conformance/README.md).
 - This code is under the repository's [LICENSE](../LICENSE).
 
@@ -173,6 +173,59 @@ prompts.report({
 
 Reports are buffered (up to 1000, oldest dropped first), sent every 10 s or per 500 to `POST {apiUrl}/v1/apps/{app}/outcomes` with `Authorization: Bearer <apiKey>`, and never throw. `await prompts.close()` flushes them; on serverless runtimes call `ctx.waitUntil(prompts.flush())`.
 
+## Observability
+
+Link every LLM call to the exact prompt version it used, and watch delivery health, with the names shared by every
+Keep Your Prompts SDK ([`protocol/tracing.md`](../protocol/tracing.md)).
+
+**Metadata, no dependency.** `meta(name)` and `renderWithMeta(name, vars)` are memory-only like `render`:
+
+```ts
+const { text, meta } = prompts.renderWithMeta('triage', { company: 'Acme' });
+meta; // { name: 'triage', version: 7, sha256: 'f31b…', app, env, workspace, revision: 42, source: 'cdn' }
+meta.attributes();        // { 'kyp.prompt.name': 'triage', 'kyp.prompt.version': 7, …, 'gen_ai.prompt.name': 'triage', 'gen_ai.prompt.version': '7' }
+meta.langfuseMetadata();  // { kyp_prompt_name: 'triage', kyp_prompt_version: 7, kyp_prompt_sha256: …, kyp_source: 'cdn', … }
+meta.langsmithMetadata(); // the same flat map, for traceable({ metadata })
+prompts.report({ prompt: meta, outcome: 'success' }); // outcomes count against the body you actually used
+```
+
+**OpenTelemetry.** `@opentelemetry/api` is an optional peer dependency used only by the `@keepyourprompts/sdk/otel`
+entry point:
+
+```sh
+npm install @opentelemetry/api   # you most likely have it already
+```
+
+```ts
+import { instrument } from '@keepyourprompts/sdk/otel';
+
+const otel = instrument(prompts); // global tracer/meter providers, or { tracerProvider, meterProvider }
+
+await tracer.startActiveSpan('chat triage', async (span) => {   // or the span your model instrumentation made
+  const { text, meta } = prompts.renderWithMeta('triage', { company: 'Acme' });
+  otel.annotate(meta);  // kyp.prompt.name/version/sha256, kyp.app/env/revision/workspace/source, gen_ai.prompt.*
+  const res = await anthropic.messages.create({ system: text, /* … */ });
+  span.end();
+});
+```
+
+- `otel.annotate(nameOrMetaOrRendered, { span?, variables? })` sets the attributes on the active span (or `span`)
+  and returns the metadata. `annotate(meta, options)` (also exported) does the same without a client.
+- `instrument` records a `kyp.refresh` span per refresh round that changed something or had trouble, with events
+  `kyp.fallback`, `kyp.hash_mismatch` and `kyp.update`, and the metrics `kyp.refresh.duration`, `kyp.staleness`,
+  `kyp.revision`, `kyp.fallbacks`, `kyp.hash_mismatches` and `kyp.render.errors` (scope `keepyourprompts`).
+  To see the start-up round too, pass an `observer` option to `Client.create` or call `instrument` before refreshes.
+- Options: `captureContent` (default `false`), `genAiAttributes` (default `true`), `openInference` (adds
+  `prompt.vendor`, `prompt.id`, `llm.prompt_template.version` for Arize Phoenix), `traceAllRefreshes` (also trace
+  uneventful `304` rounds). `otel.shutdown()` detaches it.
+- Without OpenTelemetry, `prompts.addObserver({ onRefresh, onRenderError })` gives you the same refresh records.
+
+> **Privacy.** By default no prompt text and no variable value leaves your process. `captureContent: true` (or
+> `KYP_OTEL_CAPTURE_CONTENT=true`) adds the template (`kyp.prompt.template`) and every variable passed to
+> `annotate` (`gen_ai.prompt.variable.<name>`) to your spans. Variable values often contain personal data or
+> customer content, and they then reach every backend your traces go to, under its retention and access rules.
+> Turn it on only where that is acceptable.
+
 ## API
 
 | Member | Description |
@@ -181,12 +234,14 @@ Reports are buffered (up to 1000, oldest dropped first), sent every 10 s or per 
 | `get(name)`, `tryGet(name)`, `has(name)` | Raw template; `get` throws `NotFoundError`. |
 | `render(name, vars?, { strict?, onMissing? })` | Throws `NotFoundError` or `MissingVariableError` (`.names` lists every missing variable). |
 | `prompt(name)` | Frozen `{ name, version, sha256, variables, text, render(vars?, opts?) }`. |
+| `meta(name)`, `renderWithMeta(name, vars?, opts?)` | Prompt metadata (`PromptMeta`) and `{ text, meta }`; see Observability. |
+| `addObserver(observer)` | Delivery telemetry hook (`onRefresh`, `onRenderError`); returns an unsubscribe function. |
 | `names()`, `revision` | Prompt names and revision currently held. |
 | `status()` | `{ ready, source, revision, workspace, deployedAt, promptCount, lastSuccess, lastError, staleForMs, mirrors[] }`. |
 | `refresh()` | Revalidate now, ignoring backoff; resolves `true` if a mirror answered. |
 | `maybeRefresh()` | Refresh only if `pollInterval` has passed; never throws. |
 | `onUpdate(cb)` | `cb({ oldRevision, newRevision, source, changed })`; returns an unsubscribe function. |
-| `report(outcome)`, `flush()` | Outcome reporting. |
+| `report(outcome)`, `flush()` | Outcome reporting; `prompt` may be a name, a `PromptMeta` or a `renderWithMeta` result. |
 | `toSnapshot()` | The state held now, usable as `embeddedSnapshot`. |
 | `close()` | Stop the refresher and flush reports. Reads keep working. |
 

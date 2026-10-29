@@ -60,9 +60,11 @@ namespace KeepYourPrompts
                 Cfg = cfg;
                 Kind = kind;
                 ShownUrl = shownUrl;
+                Source = KypTelemetry.NormalizeSource(cfg);
             }
 
             public Mirror Cfg { get; }
+            public string Source { get; }   // kyp.source
             public MirrorKind Kind { get; }
             public string ShownUrl { get; }
             public string ETag = "";        // guarded by _refreshLock
@@ -117,6 +119,10 @@ namespace KeepYourPrompts
         private int _disposed;
         private static readonly Random Rng = new Random();
         [ThreadStatic] private static bool _inHandler;
+        private volatile IKypObserver[] _observers = Array.Empty<IKypObserver>();
+        private readonly object _observersLock = new object();
+        private List<KypTelemetryEvent> _roundEvents = new List<KypTelemetryEvent>(); // guarded by _refreshLock
+        private volatile string _sourceKind = "";
 
         /// <summary>Raised after a new revision was swapped in, on the refresh loop (or the caller of <see cref="RefreshAsync"/>).</summary>
         public event EventHandler<PromptsUpdatedEventArgs>? Updated;
@@ -141,6 +147,7 @@ namespace KeepYourPrompts
             _startEmpty = o.StartEmpty;
             _logger = o.Logger;
             _logLevel = o.LogLevel;
+            foreach (var obs in o.Observers) if (obs != null) AddObserver(obs);
             if (_deliveryKey.Length > 0 && !_deliveryKey.StartsWith("kypd_", StringComparison.Ordinal))
                 Log(KypLogLevel.Warn, "delivery key does not start with kypd_; check KYP_DELIVERY_KEY");
 
@@ -263,9 +270,10 @@ namespace KeepYourPrompts
         // Reads: one volatile load and a dictionary lookup, no I/O.
         // ------------------------------------------------------------------------------------------
 
-        private Prompt Find(string name)
+        private Prompt Find(string name) => FindIn(_state, name);
+
+        private Prompt FindIn(State? s, string name)
         {
-            var s = _state;
             if (s != null && s.Index.TryGetValue(name, out var p)) return p;
             throw new PromptNotFoundException(name, s != null ? What + " revision " + s.Manifest.Revision : "nothing loaded for " + What);
         }
@@ -293,8 +301,151 @@ namespace KeepYourPrompts
         public Prompt Prompt(string name) => Find(name);
 
         /// <summary>Renders a prompt. Throws <see cref="PromptNotFoundException"/> or <see cref="MissingVariableException"/>.</summary>
-        public string Render(string name, IReadOnlyDictionary<string, string>? vars, OnMissing onMissing = OnMissing.Error) =>
-            Templates.Render(Find(name).Text, vars, onMissing);
+        public string Render(string name, IReadOnlyDictionary<string, string>? vars, OnMissing onMissing = OnMissing.Error)
+        {
+            try
+            {
+                return Templates.Render(Find(name).Text, vars, onMissing);
+            }
+            catch (KypException e) when (e is PromptNotFoundException || e is MissingVariableException)
+            {
+                RenderFailed(name, e);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Which deployed body <paramref name="name"/> is: name, version, sha256, app, env, workspace, revision and
+        /// the mirror kind that served it. No I/O. Throws <see cref="PromptNotFoundException"/>.
+        /// </summary>
+        public PromptMeta Meta(string name)
+        {
+            var s = _state;
+            return MetaOf(FindIn(s, name), s);
+        }
+
+        /// <summary><see cref="Render"/> plus the metadata of the exact body rendered.</summary>
+        public Rendered RenderWithMeta(string name, IReadOnlyDictionary<string, string>? vars, OnMissing onMissing = OnMissing.Error)
+        {
+            var s = _state;
+            try
+            {
+                var p = FindIn(s, name);
+                return new Rendered(Templates.Render(p.Text, vars, onMissing), MetaOf(p, s));
+            }
+            catch (KypException e) when (e is PromptNotFoundException || e is MissingVariableException)
+            {
+                RenderFailed(name, e);
+                throw;
+            }
+        }
+
+        /// <summary>App slug this client serves.</summary>
+        public string App => _app;
+
+        /// <summary>Environment slug this client serves.</summary>
+        public string Env => _env;
+
+        /// <summary>Subscribes to delivery telemetry (refresh rounds, render errors). Dispose the result to unsubscribe.</summary>
+        public IDisposable AddObserver(IKypObserver observer)
+        {
+            if (observer == null) throw new ArgumentNullException(nameof(observer));
+            lock (_observersLock) _observers = _observers.Concat(new[] { observer }).ToArray();
+            return new Unsubscriber(this, observer);
+        }
+
+        private sealed class Unsubscriber : IDisposable
+        {
+            private readonly KeepYourPromptsClient _c;
+            private readonly IKypObserver _o;
+            public Unsubscriber(KeepYourPromptsClient c, IKypObserver o)
+            {
+                _c = c;
+                _o = o;
+            }
+            public void Dispose()
+            {
+                lock (_c._observersLock) _c._observers = _c._observers.Where(x => !ReferenceEquals(x, _o)).ToArray();
+            }
+        }
+
+        // --- telemetry (protocol/tracing.md) --------------------------------------------------------
+
+        private PromptMeta MetaOf(Prompt p, State? s) =>
+            new PromptMeta(p.Name, p.Version, p.Sha256, _app, _env, s?.Manifest.Workspace ?? "", s?.Manifest.Revision ?? 0, _sourceKind);
+
+        private void RenderFailed(string name, Exception e)
+        {
+            var obs = _observers;
+            if (obs.Length == 0) return;
+            var rec = new RenderErrorRecord(_app, _env, name, e is MissingVariableException ? "missing_variable" : "not_found");
+            foreach (var o in obs)
+            {
+                try
+                {
+                    o.OnRenderError(rec);
+                }
+                catch (Exception x)
+                {
+                    Log(KypLogLevel.Error, "observer threw: " + x);
+                }
+            }
+        }
+
+        private void Event(string name, Dictionary<string, object> attrs)
+        {
+            if (_observers.Length > 0) _roundEvents.Add(new KypTelemetryEvent(name, DateTimeOffset.UtcNow, attrs));
+        }
+
+        private void Fallback(int mi, string err)
+        {
+            var m = _mirrors[mi];
+            Event("kyp.fallback", new Dictionary<string, object>
+            {
+                ["kyp.mirror"] = m.Cfg.Name,
+                ["kyp.source"] = m.Source,
+                ["error.type"] = KypTelemetry.ClassifyError(err),
+                ["kyp.error"] = Redact(err),
+            });
+        }
+
+        private void EmitRound(string trigger, DateTimeOffset start, long startTicks, int answeredBy, long prev, bool updated, string err)
+        {
+            var events = _roundEvents;
+            _roundEvents = new List<KypTelemetryEvent>();
+            var obs = _observers;
+            if (obs.Length == 0) return;
+            var s = _state;
+            var m = answeredBy >= 0 ? _mirrors[answeredBy] : null;
+            string errorType = "";
+            if (m == null)
+            {
+                errorType = KypTelemetry.ClassifyError(err);
+                for (int i = events.Count - 1; i >= 0; i--)
+                {
+                    if (events[i].Name == "kyp.fallback")
+                    {
+                        errorType = (string)events[i].Attributes["error.type"];
+                        break;
+                    }
+                }
+            }
+            var elapsed = TimeSpan.FromSeconds((Now() - startTicks) / (double)Stopwatch.Frequency);
+            var rec = new RefreshRecord(_app, _env, trigger, m == null ? "failed" : updated ? "updated" : "not_modified", start, elapsed,
+                m?.Cfg.Name ?? "", m?.Source ?? "", s?.Manifest.Revision ?? 0, prev, s?.Manifest.Workspace ?? "",
+                m == null ? Redact(err) : "", errorType, events);
+            foreach (var o in obs)
+            {
+                try
+                {
+                    o.OnRefresh(rec);
+                }
+                catch (Exception x)
+                {
+                    Log(KypLogLevel.Error, "observer threw: " + x);
+                }
+            }
+        }
 
         /// <summary>Prompt names in the current revision, sorted (ordinal).</summary>
         public IReadOnlyList<string> Names => _state?.Names ?? Array.Empty<string>();
@@ -333,7 +484,7 @@ namespace KeepYourPrompts
                 await _refreshLock.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    ok = await RoundAsync(true, DateTime.MaxValue, linked.Token).ConfigureAwait(false);
+                    ok = await RoundAsync(true, DateTime.MaxValue, linked.Token, "manual").ConfigureAwait(false);
                 }
                 finally
                 {
@@ -578,6 +729,12 @@ namespace KeepYourPrompts
                 if (Templates.Sha256Hex(r.Body!) != sha)
                 {
                     string msg = "blob " + sha.Substring(0, 12) + " failed sha256 verification";
+                    Event("kyp.hash_mismatch", new Dictionary<string, object>
+                    {
+                        ["kyp.mirror"] = name,
+                        ["kyp.source"] = _mirrors[i].Source,
+                        ["kyp.blob.sha256"] = sha,
+                    });
                     Log(KypLogLevel.Warn, name + ": " + msg + " (discarded)");
                     errors.Add(name + ": " + msg);
                     continue;
@@ -748,6 +905,18 @@ namespace KeepYourPrompts
             _state = st;
             string name = _mirrors[mi].Cfg.Name;
             lock (_statusLock) _source = name;
+            _sourceKind = _mirrors[mi].Source;
+            if (_observers.Length > 0)
+            {
+                long changedCount = st.Index.Values.LongCount(p => old == null || !old.Index.TryGetValue(p.Name, out var b) || b.Sha256 != p.Sha256);
+                if (old != null) changedCount += old.Names.LongCount(n => !st.Index.ContainsKey(n));
+                Event("kyp.update", new Dictionary<string, object>
+                {
+                    ["kyp.revision.previous"] = old?.Manifest.Revision ?? 0L,
+                    ["kyp.revision"] = st.Manifest.Revision,
+                    ["kyp.prompts.changed"] = changedCount,
+                });
+            }
             Log(KypLogLevel.Info, "loaded " + What + " revision " + st.Manifest.Revision + " (" + st.Names.Length + " prompts) from " + name);
             if (!notify) return;
             var changed = new List<string>();
@@ -803,12 +972,18 @@ namespace KeepYourPrompts
             await _refreshLock.WaitAsync().ConfigureAwait(false);
             try
             {
+                var start = DateTimeOffset.UtcNow;
+                long startTicks = Now();
+                _roundEvents = new List<KypTelemetryEvent>();
                 LocateCache();
                 State? best = null;
                 int bestMi = -1;
+                bool anyLocal = false;
+                var errs = new List<string>();
                 for (int mi = 0; mi < _mirrors.Count; mi++)
                 {
                     if (_mirrors[mi].Kind == MirrorKind.Http) continue;
+                    anyLocal = true;
                     var c = new Candidate();
                     var oc = await TryMirrorAsync(mi, best, false, DateTime.MaxValue, c, CancellationToken.None).ConfigureAwait(false);
                     if (oc == Outcome.Updated)
@@ -819,6 +994,8 @@ namespace KeepYourPrompts
                     else if (oc == Outcome.Failed && !c.Missing)
                     {
                         RecordFail(mi, c.Error, false);
+                        Fallback(mi, c.Error);
+                        errs.Add(_mirrors[mi].Cfg.Name + ": " + c.Error);
                     }
                 }
                 if (best != null)
@@ -826,6 +1003,9 @@ namespace KeepYourPrompts
                     Install(best, bestMi, false);
                     if (bestMi != _cacheIdx) WriteCache(best);
                 }
+                // Only a round when there was something local to read.
+                if (anyLocal) EmitRound("start", start, startTicks, bestMi, 0, best != null, errs.Count > 0 ? string.Join("; ", errs) : "no local copy");
+                else _roundEvents = new List<KypTelemetryEvent>();
             }
             finally
             {
@@ -843,7 +1023,7 @@ namespace KeepYourPrompts
                 await _refreshLock.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    await RoundAsync(true, deadline, ct).ConfigureAwait(false);
+                    await RoundAsync(true, deadline, ct, "start").ConfigureAwait(false);
                 }
                 finally
                 {
@@ -865,12 +1045,16 @@ namespace KeepYourPrompts
         // --- refresh -------------------------------------------------------------------------------
 
         /// <summary>One round over the polled mirrors, in order. Caller holds _refreshLock.</summary>
-        private async Task<bool> RoundAsync(bool ignoreBackoff, DateTime dl, CancellationToken ct)
+        private async Task<bool> RoundAsync(bool ignoreBackoff, DateTime dl, CancellationToken ct, string trigger)
         {
+            var start = DateTimeOffset.UtcNow;
+            long startTicks = Now();
+            _roundEvents = new List<KypTelemetryEvent>();
             var cur = _state;
             var errs = new List<string>();
             var skipped = new List<int>();
             bool answered = false;
+            int answeredBy = -1;
             foreach (int mi in _polled)
             {
                 if (ct.IsCancellationRequested) break;
@@ -879,7 +1063,11 @@ namespace KeepYourPrompts
                     skipped.Add(mi);
                     continue;
                 }
-                if (answered = await AttemptAsync(mi, cur, dl, errs, ct).ConfigureAwait(false)) break;
+                if (answered = await AttemptAsync(mi, cur, dl, errs, ct).ConfigureAwait(false))
+                {
+                    answeredBy = mi;
+                    break;
+                }
             }
             // Everything we tried failed: give the mirrors in backoff a chance too.
             if (!answered)
@@ -887,7 +1075,11 @@ namespace KeepYourPrompts
                 foreach (int mi in skipped)
                 {
                     if (ct.IsCancellationRequested) break;
-                    if (answered = await AttemptAsync(mi, cur, dl, errs, ct).ConfigureAwait(false)) break;
+                    if (answered = await AttemptAsync(mi, cur, dl, errs, ct).ConfigureAwait(false))
+                    {
+                        answeredBy = mi;
+                        break;
+                    }
                 }
             }
             string joined = string.Join("; ", errs);
@@ -897,6 +1089,9 @@ namespace KeepYourPrompts
                 _lastError = !answered && joined.Length == 0 ? "all mirrors backing off" : joined;
             }
             if (!answered && !ct.IsCancellationRequested) Log(KypLogLevel.Warn, "refresh failed, serving what is held: " + joined);
+            string lastErr;
+            lock (_statusLock) lastErr = _lastError;
+            EmitRound(trigger, start, startTicks, answeredBy, cur?.Manifest.Revision ?? 0, answered && !ReferenceEquals(_state, cur), lastErr);
             return answered;
         }
 
@@ -917,14 +1112,17 @@ namespace KeepYourPrompts
                     m.ETag = c.ETag;
                     RecordOk(mi);
                     lock (_statusLock) if (cur != null) _source = m.Cfg.Name;
+                    if (cur != null) _sourceKind = m.Source;
                     return true;
                 case Outcome.Stale:
                     errs.Add(m.Cfg.Name + ": " + c.Error);
                     RecordFail(mi, c.Error, false);
+                    Fallback(mi, c.Error);
                     return false;
                 default:
                     errs.Add(m.Cfg.Name + ": " + c.Error);
                     RecordFail(mi, c.Error, true);
+                    Fallback(mi, c.Error);
                     return false;
             }
         }
@@ -942,7 +1140,7 @@ namespace KeepYourPrompts
                     await _refreshLock.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
-                        await RoundAsync(false, DateTime.MaxValue, ct).ConfigureAwait(false);
+                        await RoundAsync(false, DateTime.MaxValue, ct, "poll").ConfigureAwait(false);
                     }
                     finally
                     {

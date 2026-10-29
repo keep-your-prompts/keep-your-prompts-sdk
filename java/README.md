@@ -8,7 +8,7 @@ try (KeepYourPrompts prompts = KeepYourPrompts.fromEnv()) {          // KYP_DELI
 }
 ```
 
-- Java 17+ (bytecode 17, tested on 17, 21 and 25). **Zero runtime dependencies**: `java.net.http.HttpClient`, `MessageDigest` and a small internal JSON parser.
+- Java 17+ (bytecode 17, tested on 17, 21 and 25). **Zero runtime dependencies**: `java.net.http.HttpClient`, `MessageDigest` and a small internal JSON parser (`opentelemetry-api` is optional, for `com.keepyourprompts.otel`).
 - Implements [prompt delivery protocol v1](../protocol/README.md) and passes the shared [conformance suite](../conformance/README.md).
 - License: see the repository's `LICENSE` file.
 
@@ -64,6 +64,8 @@ prompts.close();                                                        // stops
 | `Optional<String> tryGet(String name)`, `boolean contains(String name)` | |
 | `Prompt prompt(String name)` | Record `(name, version, sha256, variables, text)` with `render(Map)`. |
 | `String render(String name, Map<String, ?> vars[, OnMissing])` | Values via `String.valueOf`. Throws `PromptNotFoundException`, `MissingVariableException` (lists every missing name). `OnMissing.KEEP` leaves `{{name}}`, `EMPTY` drops it. |
+| `PromptMeta meta(String name)`, `Rendered renderWithMeta(String name, Map<String, ?> vars[, OnMissing])` | Prompt metadata; see Observability. |
+| `Runnable addObserver(Telemetry.Observer o)` | Delivery telemetry hook (refresh rounds, render errors); returns an unsubscribe handle. |
 | `List<String> names()`, `long revision()` | Current revision, 0 when nothing is loaded. |
 | `Status status()` | Record: `ready`, `source`, `revision`, `workspace`, `deployedAt`, `promptCount`, `lastSuccess`, `lastError`, `staleFor`, `mirrors` (per mirror: `name`, `url`, `consecutiveFailures`, `lastError`, `lastSuccess`). |
 | `boolean refresh()` | Revalidate now across the mirrors, ignoring backoff. `true` if a mirror answered. |
@@ -73,6 +75,58 @@ prompts.close();                                                        // stops
 | `Templates.render(...)`, `Templates.variables(...)`, `Templates.sha256Hex(...)` | The template engine and hash on their own. |
 
 All exceptions are unchecked and extend `KypException`: `PromptNotFoundException` (`name()`), `MissingVariableException` (`names()`), `UnavailableException`, `ProtocolException`.
+
+## Observability
+
+Link every LLM call to the exact prompt version it used, and watch delivery health, with the names shared by every
+Keep Your Prompts SDK ([`protocol/tracing.md`](../protocol/tracing.md)).
+
+**Metadata, no dependency.** `meta(name)` and `renderWithMeta(name, vars)` read memory only, like `render`:
+
+```java
+Rendered r = prompts.renderWithMeta("triage", Map.of("company", "Acme"));
+r.text();                      // the rendered prompt
+r.meta();                      // PromptMeta[name=triage, version=7, sha256=f31b…, app, env, workspace, revision=42, source=cdn]
+r.meta().attributes();         // kyp.prompt.name, kyp.prompt.version, …, gen_ai.prompt.name, gen_ai.prompt.version ("7")
+r.meta().langfuseMetadata();   // kyp_prompt_name, kyp_prompt_version, kyp_prompt_sha256, … (flat keys)
+r.meta().langsmithMetadata();  // the same flat map
+```
+
+**OpenTelemetry.** `io.opentelemetry:opentelemetry-api` is an *optional* dependency of the SDK: add it to your build
+(most apps with OpenTelemetry already have it); only the `com.keepyourprompts.otel` package uses it.
+
+```java
+import com.keepyourprompts.otel.KypOpenTelemetry;
+
+KypOpenTelemetry otel = KypOpenTelemetry.instrument(prompts); // GlobalOpenTelemetry, or builder().openTelemetry(sdk)
+
+Span span = tracer.spanBuilder("chat triage").startSpan();     // or the span your model instrumentation created
+try (Scope s = span.makeCurrent()) {
+  Rendered r = prompts.renderWithMeta("triage", Map.of("company", "Acme"));
+  otel.annotate(r); // kyp.prompt.name/version/sha256, kyp.app/env/revision/workspace/source, gen_ai.prompt.*
+  // ... call the model with r.text() ...
+} finally {
+  span.end();
+}
+```
+
+- `annotate(name | meta | rendered)` uses `Span.current()`; `annotate(span, meta, variables)` takes an explicit span.
+  `KypOpenTelemetry.annotateSpan(...)` works without an instance.
+- The instrumentation records a `kyp.refresh` span per refresh round that changed something or had trouble (events
+  `kyp.fallback`, `kyp.hash_mismatch`, `kyp.update`; a manual `refresh()` joins the current trace) and the metrics
+  `kyp.refresh.duration`, `kyp.staleness`, `kyp.revision`, `kyp.fallbacks`, `kyp.hash_mismatches`,
+  `kyp.render.errors` (scope `keepyourprompts`). To see the start-up round too:
+  `var k = KypOpenTelemetry.builder().build(); var prompts = KeepYourPrompts.builderFromEnv().observer(k).build(); k.attach(prompts);`
+- Builder options: `captureContent`, `genAiAttributes` (default `true`), `openInference` (adds `prompt.vendor`,
+  `prompt.id`, `llm.prompt_template.version` for Arize Phoenix), `traceAllRefreshes`. `close()` detaches it.
+- Without OpenTelemetry, implement `Telemetry.Observer` (`onRefresh`, `onRenderError`) and pass it to
+  `builder().observer(...)` or `prompts.addObserver(...)`.
+
+> **Privacy.** By default no prompt text and no variable value leaves your process. `captureContent(true)` (or
+> `KYP_OTEL_CAPTURE_CONTENT=true`) adds the template (`kyp.prompt.template`) and every variable passed to `annotate`
+> (`gen_ai.prompt.variable.<name>`) to your spans. Variable values often contain personal data or customer content,
+> and they then reach every backend your traces go to, under its retention and access rules. Turn it on only where
+> that is acceptable.
 
 ## Configuration
 

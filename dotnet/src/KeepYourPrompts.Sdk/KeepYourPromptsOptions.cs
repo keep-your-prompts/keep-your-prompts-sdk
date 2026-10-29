@@ -66,6 +66,9 @@ namespace KeepYourPrompts
         /// <summary>Custom HTTP handler (proxies, tests). The client owns and disposes it.</summary>
         public Func<HttpMessageHandler>? HttpHandlerFactory { get; set; }
 
+        /// <summary>Delivery telemetry hooks, registered before start-up so the start-up round is seen too (protocol/tracing.md).</summary>
+        public IList<IKypObserver> Observers { get; } = new List<IKypObserver>();
+
         /// <summary>Use a snapshot embedded in <paramref name="assembly"/> under resource prefix <paramref name="prefix"/>.</summary>
         public KeepYourPromptsOptions UseEmbeddedSnapshot(Assembly assembly, string prefix = "kyp")
         {

@@ -81,6 +81,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     boolean startEmpty;
     String userAgent = "kyp-java/" + VERSION;
     final List<Consumer<Update>> listeners = new ArrayList<>();
+    final List<Telemetry.Observer> observers = new ArrayList<>();
     BiConsumer<LogLevel, String> logger;
     LogLevel logLevel = LogLevel.WARN;
 
@@ -255,6 +256,12 @@ public final class KeepYourPrompts implements AutoCloseable {
     }
 
     /** Custom log sink; default is {@link System.Logger} {@code com.keepyourprompts}. */
+    /** Delivery telemetry hook, registered before start-up so the start-up round is seen too. */
+    public Builder observer(Telemetry.Observer o) {
+      observers.add(Objects.requireNonNull(o));
+      return this;
+    }
+
     public Builder logger(BiConsumer<LogLevel, String> v) {
       logger = v;
       return this;
@@ -320,6 +327,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     final Mirror cfg;
     final MirrorKind kind;
     final String shownUrl;
+    final String source; // kyp.source
     String etag = ""; // guarded by refreshLock
     // guarded by statusLock
     int failures;
@@ -331,6 +339,7 @@ public final class KeepYourPrompts implements AutoCloseable {
       this.cfg = cfg;
       this.kind = kind;
       this.shownUrl = shownUrl;
+      this.source = Telemetry.normalizeSource(cfg);
     }
   }
 
@@ -380,6 +389,9 @@ public final class KeepYourPrompts implements AutoCloseable {
   private final CopyOnWriteArrayList<Consumer<Update>> listeners = new CopyOnWriteArrayList<>();
   private final List<Update> pending = new ArrayList<>(); // guarded by itself
   private final Object deliverLock = new Object();
+  private final CopyOnWriteArrayList<Telemetry.Observer> observers = new CopyOnWriteArrayList<>();
+  private List<Telemetry.Event> roundEvents = new ArrayList<>(); // guarded by refreshLock
+  private volatile String sourceKind = "";
   private volatile boolean closed;
   private volatile Thread refresherThread;
   private final ScheduledExecutorService exec;
@@ -412,6 +424,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     this.logger = b.logger;
     this.logLevel = b.logLevel;
     this.listeners.addAll(b.listeners);
+    this.observers.addAll(b.observers);
     if (!deliveryKey.isEmpty() && !deliveryKey.startsWith("kypd_"))
       log(LogLevel.WARN, "delivery key does not start with kypd_; check KYP_DELIVERY_KEY");
 
@@ -510,7 +523,10 @@ public final class KeepYourPrompts implements AutoCloseable {
   // ===========================================================================================
 
   private Prompt find(String name) {
-    State s = state.get();
+    return findIn(state.get(), name);
+  }
+
+  private Prompt findIn(State s, String name) {
     if (s != null) {
       Prompt p = s.index.get(name);
       if (p != null) return p;
@@ -546,11 +562,57 @@ public final class KeepYourPrompts implements AutoCloseable {
    * or {@link MissingVariableException}.
    */
   public String render(String name, Map<String, ?> vars) {
-    return Templates.render(find(name).text(), vars, OnMissing.ERROR);
+    return render(name, vars, OnMissing.ERROR);
   }
 
   public String render(String name, Map<String, ?> vars, OnMissing onMissing) {
-    return Templates.render(find(name).text(), vars, onMissing);
+    try {
+      return Templates.render(find(name).text(), vars, onMissing);
+    } catch (PromptNotFoundException | MissingVariableException e) {
+      renderFailed(name, e);
+      throw e;
+    }
+  }
+
+  /**
+   * Which deployed body {@code name} is: name, version, sha256, app, env, workspace, revision and the mirror kind
+   * that served it. No I/O. Throws {@link PromptNotFoundException}.
+   */
+  public PromptMeta meta(String name) {
+    State s = state.get();
+    return metaOf(findIn(s, name), s);
+  }
+
+  /** {@link #render(String, Map)} plus the metadata of the exact body rendered. */
+  public Rendered renderWithMeta(String name, Map<String, ?> vars) {
+    return renderWithMeta(name, vars, OnMissing.ERROR);
+  }
+
+  public Rendered renderWithMeta(String name, Map<String, ?> vars, OnMissing onMissing) {
+    State s = state.get();
+    try {
+      Prompt p = findIn(s, name);
+      return new Rendered(Templates.render(p.text(), vars, onMissing), metaOf(p, s));
+    } catch (PromptNotFoundException | MissingVariableException e) {
+      renderFailed(name, e);
+      throw e;
+    }
+  }
+
+  /** Subscribes to delivery telemetry (refresh rounds, render errors). Returns a handle that unsubscribes. */
+  public Runnable addObserver(Telemetry.Observer observer) {
+    observers.add(Objects.requireNonNull(observer));
+    return () -> observers.remove(observer);
+  }
+
+  /** App slug this client serves. */
+  public String app() {
+    return app;
+  }
+
+  /** Environment slug this client serves. */
+  public String env() {
+    return env;
   }
 
   /** Prompt names in the current revision, sorted. */
@@ -606,7 +668,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     if (polled.length == 0 || closed) return false;
     boolean ok;
     synchronized (refreshLock) {
-      ok = round(true, Long.MAX_VALUE);
+      ok = round(true, Long.MAX_VALUE, "manual");
     }
     deliverUpdates();
     return ok;
@@ -707,6 +769,92 @@ public final class KeepYourPrompts implements AutoCloseable {
   }
 
   // ===========================================================================================
+  // Telemetry (protocol/tracing.md)
+  // ===========================================================================================
+
+  private PromptMeta metaOf(Prompt p, State s) {
+    return new PromptMeta(
+        p.name(),
+        p.version(),
+        p.sha256(),
+        app,
+        env,
+        s == null ? "" : s.manifest.workspace,
+        s == null ? 0 : s.manifest.revision,
+        sourceKind);
+  }
+
+  private void renderFailed(String name, RuntimeException e) {
+    if (observers.isEmpty()) return;
+    var err =
+        new Telemetry.RenderError(
+            app, env, name, e instanceof MissingVariableException ? "missing_variable" : "not_found");
+    for (Telemetry.Observer o : observers) {
+      try {
+        o.onRenderError(err);
+      } catch (RuntimeException x) {
+        log(LogLevel.ERROR, "observer threw: " + x);
+      }
+    }
+  }
+
+  private void event(String name, Map<String, Object> attrs) {
+    if (!observers.isEmpty()) roundEvents.add(new Telemetry.Event(name, Instant.now(), attrs));
+  }
+
+  private void fallback(int mi, String err) {
+    MirrorRt m = mirrors.get(mi);
+    Map<String, Object> a = new LinkedHashMap<>();
+    a.put("kyp.mirror", m.cfg.name());
+    a.put("kyp.source", m.source);
+    a.put("error.type", Telemetry.classifyError(err));
+    a.put("kyp.error", redact(err));
+    event("kyp.fallback", a);
+  }
+
+  private void emitRound(
+      String trigger, Instant start, long startNanos, int answeredBy, long prev, boolean updated, String err) {
+    List<Telemetry.Event> events = roundEvents;
+    roundEvents = new ArrayList<>();
+    if (observers.isEmpty()) return;
+    State s = state.get();
+    MirrorRt m = answeredBy >= 0 ? mirrors.get(answeredBy) : null;
+    String errorType = "";
+    if (m == null) {
+      errorType = Telemetry.classifyError(err);
+      for (int i = events.size() - 1; i >= 0; i--) {
+        if (events.get(i).name().equals("kyp.fallback")) {
+          errorType = String.valueOf(events.get(i).attributes().get("error.type"));
+          break;
+        }
+      }
+    }
+    var rec =
+        new Telemetry.RefreshRecord(
+            app,
+            env,
+            trigger,
+            m == null ? "failed" : updated ? "updated" : "not_modified",
+            start,
+            Duration.ofNanos(Math.max(0, System.nanoTime() - startNanos)),
+            m == null ? "" : m.cfg.name(),
+            m == null ? "" : m.source,
+            s == null ? 0 : s.manifest.revision,
+            prev,
+            s == null ? "" : s.manifest.workspace,
+            m == null ? redact(err) : "",
+            errorType,
+            events);
+    for (Telemetry.Observer o : observers) {
+      try {
+        o.onRefresh(rec);
+      } catch (RuntimeException x) {
+        log(LogLevel.ERROR, "observer threw: " + x);
+      }
+    }
+  }
+
+  // ===========================================================================================
   // Mirror access
   // ===========================================================================================
 
@@ -799,6 +947,11 @@ public final class KeepYourPrompts implements AutoCloseable {
       }
       if (!Templates.sha256Hex(r.body()).equals(sha)) {
         String msg = "blob " + sha.substring(0, 12) + " failed sha256 verification";
+        Map<String, Object> a = new LinkedHashMap<>();
+        a.put("kyp.mirror", name);
+        a.put("kyp.source", mirrors.get(i).source);
+        a.put("kyp.blob.sha256", sha);
+        event("kyp.hash_mismatch", a);
         log(LogLevel.WARN, name + ": " + msg + " (discarded)");
         errors.append(name).append(": ").append(msg).append("; ");
         continue;
@@ -944,6 +1097,20 @@ public final class KeepYourPrompts implements AutoCloseable {
     synchronized (statusLock) {
       source = name;
     }
+    sourceKind = mirrors.get(mi).source;
+    if (!observers.isEmpty()) {
+      long changedCount = 0;
+      for (Prompt p : st.index.values()) {
+        Prompt before = old == null ? null : old.index.get(p.name());
+        if (before == null || !before.sha256().equals(p.sha256())) changedCount++;
+      }
+      if (old != null) for (String n : old.names) if (!st.index.containsKey(n)) changedCount++;
+      Map<String, Object> a = new LinkedHashMap<>();
+      a.put("kyp.revision.previous", old == null ? 0L : old.manifest.revision);
+      a.put("kyp.revision", st.manifest.revision);
+      a.put("kyp.prompts.changed", changedCount);
+      event("kyp.update", a);
+    }
     log(
         LogLevel.INFO,
         "loaded " + what() + " revision " + st.manifest.revision + " (" + st.names.size() + " prompts) from "
@@ -986,11 +1153,17 @@ public final class KeepYourPrompts implements AutoCloseable {
   /** Local mirrors only (class path, snapshot, disk cache). Highest revision wins; ties go to the earlier one. */
   private void loadLocal() {
     synchronized (refreshLock) {
+      Instant start = Instant.now();
+      long startNanos = System.nanoTime();
+      roundEvents = new ArrayList<>();
       locateCache();
       State best = null;
       int bestMi = -1;
+      boolean anyLocal = false;
+      List<String> errs = new ArrayList<>();
       for (int mi = 0; mi < mirrors.size(); mi++) {
         if (mirrors.get(mi).kind == MirrorKind.HTTP) continue;
+        anyLocal = true;
         Candidate c = new Candidate();
         Outcome oc = tryMirror(mi, best, false, Long.MAX_VALUE, c);
         if (oc == Outcome.UPDATED) {
@@ -998,11 +1171,19 @@ public final class KeepYourPrompts implements AutoCloseable {
           bestMi = mi;
         } else if (oc == Outcome.FAILED && !c.missing) {
           recordFail(mi, c.error, false);
+          fallback(mi, c.error);
+          errs.add(mirrors.get(mi).cfg.name() + ": " + c.error);
         }
       }
       if (best != null) {
         install(best, bestMi, false);
         if (bestMi != cacheIdx) writeCache(best);
+      }
+      if (anyLocal) { // only a round when there was something local to read
+        String err = errs.isEmpty() ? "no local copy" : String.join("; ", errs);
+        emitRound("start", start, startNanos, bestMi, 0, best != null, err);
+      } else {
+        roundEvents = new ArrayList<>();
       }
     }
   }
@@ -1013,7 +1194,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     long delay = 100;
     while (state.get() == null) {
       synchronized (refreshLock) {
-        round(true, deadline);
+        round(true, deadline, "start");
       }
       if (state.get() != null || System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delay) - deadline >= 0) break;
       try {
@@ -1041,24 +1222,34 @@ public final class KeepYourPrompts implements AutoCloseable {
   // --- refresh ---------------------------------------------------------------------------------
 
   /** One round over the polled mirrors, in order. Caller holds refreshLock. */
-  private boolean round(boolean ignoreBackoff, long dl) {
+  private boolean round(boolean ignoreBackoff, long dl, String trigger) {
+    Instant start = Instant.now();
+    long startNanos = System.nanoTime();
+    roundEvents = new ArrayList<>();
     State cur = state.get();
     List<String> errs = new ArrayList<>();
     List<Integer> skipped = new ArrayList<>();
     boolean answered = false;
+    int answeredBy = -1;
     for (int mi : polled) {
       if (closed) break;
       if (!ignoreBackoff && inBackoff(mi)) {
         skipped.add(mi);
         continue;
       }
-      if (answered = attempt(mi, cur, dl, errs)) break;
+      if (answered = attempt(mi, cur, dl, errs)) {
+        answeredBy = mi;
+        break;
+      }
     }
     // Everything we tried failed: give the mirrors in backoff a chance too.
     if (!answered) {
       for (int mi : skipped) {
         if (closed) break;
-        if (answered = attempt(mi, cur, dl, errs)) break;
+        if (answered = attempt(mi, cur, dl, errs)) {
+          answeredBy = mi;
+          break;
+        }
       }
     }
     String joined = String.join("; ", errs);
@@ -1067,6 +1258,13 @@ public final class KeepYourPrompts implements AutoCloseable {
       lastError = (!answered && joined.isEmpty()) ? "all mirrors backing off" : joined;
     }
     if (!answered && !closed) log(LogLevel.WARN, "refresh failed, serving what is held: " + joined);
+    State now = state.get();
+    boolean updated = answered && now != cur;
+    String lastErr;
+    synchronized (statusLock) {
+      lastErr = lastError;
+    }
+    emitRound(trigger, start, startNanos, answeredBy, cur == null ? 0 : cur.manifest.revision, updated, lastErr);
     return answered;
   }
 
@@ -1087,14 +1285,17 @@ public final class KeepYourPrompts implements AutoCloseable {
         synchronized (statusLock) {
           if (cur != null) source = m.cfg.name();
         }
+        if (cur != null) sourceKind = m.source;
         return true;
       case STALE:
         errs.add(m.cfg.name() + ": " + c.error);
         recordFail(mi, c.error, false);
+        fallback(mi, c.error);
         return false;
       default:
         errs.add(m.cfg.name() + ": " + c.error);
         recordFail(mi, c.error, true);
+        fallback(mi, c.error);
         return false;
     }
   }
@@ -1116,7 +1317,7 @@ public final class KeepYourPrompts implements AutoCloseable {
     if (closed) return;
     try {
       synchronized (refreshLock) {
-        round(false, Long.MAX_VALUE);
+        round(false, Long.MAX_VALUE, "poll");
       }
       deliverUpdates();
     } catch (RuntimeException e) {

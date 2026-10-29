@@ -17,6 +17,7 @@ from ._errors import KypError, MissingVariableError, NotFoundError, ProtocolErro
 from ._manifest import Manifest, ManifestPrompt, is_slug, parse_manifest
 from ._outcomes import OUTCOME_KINDS
 from ._snapshot import SnapshotInfo, pull_snapshot, write_snapshot
+from ._telemetry import Observer, PromptMeta, RefreshRecord, Rendered, TelemetryEvent
 from ._template import render_template, template_variables
 from ._version import __version__
 
@@ -39,11 +40,16 @@ __all__ = [
     "MissingVariableError",
     "NotFoundError",
     "OUTCOME_KINDS",
+    "Observer",
     "Options",
     "Prompt",
+    "PromptMeta",
     "ProtocolError",
+    "RefreshRecord",
+    "Rendered",
     "SnapshotInfo",
     "Status",
+    "TelemetryEvent",
     "UnavailableError",
     "Update",
     "__version__",

@@ -14,7 +14,8 @@ defer prompts.Close()
 text, err := prompts.Render("triage", kyp.Vars{"company": "Acme", "billing_queue": "refunds"})
 ```
 
-- Go 1.22 or newer, standard library only (no dependencies).
+- Go 1.22 or newer, standard library only (no dependencies). OpenTelemetry support is the separate module
+  [`go/otel`](otel/README.md).
 - Implements [prompt delivery protocol v1](../protocol/README.md) and passes every required behaviour of the [conformance suite](../conformance/README.md).
 - Version 0.1.0. Licensed under the repository's [LICENSE](../LICENSE).
 
@@ -111,12 +112,14 @@ Build explicit mirrors with `kyp.FileMirror(dir, name)` (also `file:///dir`), `k
 | `Get(name) (string, error)` | Raw template. `*NotFoundError` (matches `kyp.ErrNotFound`). |
 | `Render(name, kyp.Vars, ...OnMissing) (string, error)` | Renders. `*NotFoundError`, `*MissingVariableError` (matches `kyp.ErrMissingVariable`). |
 | `Prompt(name) (Prompt, error)` | `{Name, Version, SHA256, Variables, Text}` plus `Prompt.Render`. |
+| `Meta(name) (PromptMeta, error)`, `RenderWithMeta(name, vars, ...) (Rendered, error)` | Prompt metadata; see Observability. |
+| `AddObserver(kyp.Observer) (remove func())`, `kyp.WithObserver(o)` | Delivery telemetry hook (refresh rounds, render errors). |
 | `Contains(name) bool`, `Names() []string`, `Revision() int64` | |
 | `Status() Status` | `Ready`, `Source`, `Revision`, `Workspace`, `DeployedAt`, `PromptCount`, `LastSuccess`, `LastError`, `StaleFor` (alert on it), `Mirrors` (per mirror: failures, last error, last success). |
 | `Refresh(ctx) error` | Revalidate now, ignoring backoff; nil if a mirror answered. Never evicts. |
 | `OnUpdate(func(Update)) (unregister func())` | Called after each swap with `{OldRevision, NewRevision, Source, Changed}`; panics are recovered. |
 | `Snapshot() (*Snapshot, error)` | The held state; `(*Snapshot).WriteDir(dir)` writes the layout. |
-| `RecordOutcome(kyp.Outcome) error`, `FlushOutcomes(ctx) error` | Optional outcome reporting, below. |
+| `RecordOutcome(kyp.Outcome) error`, `FlushOutcomes(ctx) error` | Optional outcome reporting, below; set `Outcome.Meta` to pin the body used. |
 | `Close() error` | Stops the refresher, flushes outcomes. Reads keep working. |
 
 `kyp.PullSnapshot(ctx, opts)` fetches what is deployed now from the network mirrors (what `kyp pull` does).
@@ -143,6 +146,60 @@ _ = prompts.RecordOutcome(kyp.Outcome{Prompt: "triage", Result: kyp.OutcomeSucce
 ```
 
 `RecordOutcome` never blocks: outcomes are batched and sent to `POST /v1/apps/<app>/outcomes` every 10 s or 100 outcomes, and on `Close`. Without a key it returns `kyp.ErrOutcomesDisabled`.
+
+## Observability
+
+Link every LLM call to the exact prompt version it used, and watch delivery health, with the names shared by every
+Keep Your Prompts SDK ([`protocol/tracing.md`](../protocol/tracing.md)).
+
+**Metadata, no dependency.** `Meta(name)` and `RenderWithMeta(name, vars)` read memory only, like `Render`:
+
+```go
+r, err := prompts.RenderWithMeta("triage", kyp.Vars{"company": "Acme"})
+// r.Text: the rendered prompt
+// r.Meta: kyp.PromptMeta{Name: "triage", Version: 7, SHA256: "f31b…", App, Env, Workspace, Revision: 42, Source: "cdn"}
+r.Meta.Attributes()        // map: kyp.prompt.name, kyp.prompt.version, …, gen_ai.prompt.name, gen_ai.prompt.version ("7")
+r.Meta.LangfuseMetadata()  // map: kyp_prompt_name, kyp_prompt_version, kyp_prompt_sha256, … (flat keys)
+r.Meta.LangSmithMetadata() // the same flat map
+_ = prompts.RecordOutcome(kyp.Outcome{Meta: &r.Meta, Result: kyp.OutcomeSuccess}) // counts against the body used
+```
+
+**OpenTelemetry** lives in a separate module, so this one keeps zero dependencies:
+
+```sh
+go get github.com/keep-your-prompts/keep-your-prompts-sdk/go/otel@latest
+```
+
+```go
+import kypotel "github.com/keep-your-prompts/keep-your-prompts-sdk/go/otel"
+
+ins, err := kypotel.Instrument(prompts) // global providers, or kypotel.WithTracerProvider / WithMeterProvider
+
+ctx, span := tracer.Start(ctx, "chat triage") // or the span your model instrumentation created
+r, _ := prompts.RenderWithMeta("triage", kyp.Vars{"company": "Acme"})
+ins.AnnotateMeta(ctx, r.Meta) // kyp.prompt.name/version/sha256, kyp.app/env/revision/workspace/source, gen_ai.prompt.*
+// ... call the model with r.Text ...
+span.End()
+```
+
+- `ins.Annotate(ctx, name, ...)` annotates with the body held now; `kypotel.OnSpan(span)`, `kypotel.WithVariables(vars)`
+  adjust it. `kypotel.AnnotateSpan(ctx, meta, ...)` works without an `Instrumentation`.
+- The instrumentation records a `kyp.refresh` span per refresh round that changed something or had trouble (events
+  `kyp.fallback`, `kyp.hash_mismatch`, `kyp.update`; a manual `Refresh(ctx)` joins the trace in `ctx`) and the
+  metrics `kyp.refresh.duration`, `kyp.staleness`, `kyp.revision`, `kyp.fallbacks`, `kyp.hash_mismatches`,
+  `kyp.render.errors` (scope `keepyourprompts`). To see the start-up round too:
+  `ins, _ := kypotel.New(); c, _ := kyp.New(ctx, opts, kyp.WithObserver(ins)); ins.Attach(c)`.
+- Options: `WithCaptureContent(bool)`, `WithoutGenAIAttributes()`, `WithOpenInference()` (adds `prompt.vendor`,
+  `prompt.id`, `llm.prompt_template.version` for Arize Phoenix), `WithTraceAllRefreshes()`. `ins.Shutdown()`
+  detaches it.
+- Without OpenTelemetry, `prompts.AddObserver(kyp.ObserverFuncs{Refresh: ..., RenderError: ...})` gives you the
+  same records.
+
+> **Privacy.** By default no prompt text and no variable value leaves your process. `WithCaptureContent(true)` (or
+> `KYP_OTEL_CAPTURE_CONTENT=true`) adds the template (`kyp.prompt.template`) and every variable passed with
+> `WithVariables` (`gen_ai.prompt.variable.<name>`) to your spans. Variable values often contain personal data or
+> customer content, and they then reach every backend your traces go to, under its retention and access rules.
+> Turn it on only where that is acceptable.
 
 ## Tests and benchmarks
 

@@ -33,9 +33,10 @@ from typing import (
     Union,
 )
 
-from ._errors import KypError, NotFoundError
+from ._errors import KypError, MissingVariableError, NotFoundError
 from ._io import FetchResult, atomic_write, file_url_to_path, read_file
 from ._manifest import Manifest, is_slug, parse_manifest
+from ._telemetry import PromptMeta, RefreshRecord, Rendered, TelemetryEvent, classify_error, normalize_source
 from ._template import render_template
 from ._version import __version__
 
@@ -153,6 +154,7 @@ class Options:
     outcome_buffer_size: int = 1000
     outcome_flush_interval: float = 10.0
     log_level: Optional[str] = None
+    observer: Optional[Any] = None  # delivery telemetry hook (protocol/tracing.md)
 
     @staticmethod
     def from_env(environ: Optional[Mapping[str, str]] = None, **overrides: Any) -> Options:
@@ -216,10 +218,23 @@ Gen = Generator[Op, Any, Any]
 
 
 class _MirrorRt:
-    __slots__ = ("etag", "failures", "kind", "last_error", "last_ok", "name", "retry_at", "shown_url", "token", "url")
+    __slots__ = (
+        "etag",
+        "failures",
+        "kind",
+        "last_error",
+        "last_ok",
+        "name",
+        "retry_at",
+        "shown_url",
+        "source",
+        "token",
+        "url",
+    )
 
     def __init__(self, name: str, kind: str, url: str, shown_url: str, token: str) -> None:
         self.name, self.kind, self.url, self.shown_url, self.token = name, kind, url, shown_url, token
+        self.source = normalize_source(name, kind)
         self.etag = ""
         self.failures = 0
         self.retry_at = 0.0  # time.monotonic()
@@ -318,6 +333,8 @@ class Engine:
         self.source = ""
         self.pending: List[Update] = []
         self.stopped = False
+        self.observers: List[Any] = [o.observer] if o.observer is not None else []
+        self._events: List[TelemetryEvent] = []  # span events of the round in progress (rounds are serialised)
 
         if o.mirrors is not None:
             rest = list(o.mirrors)
@@ -373,7 +390,9 @@ class Engine:
 
     # --- reads ------------------------------------------------------------------
     def find(self, name: str) -> Prompt:
-        s = self.state
+        return self._find_in(self.state, name)
+
+    def _find_in(self, s: Optional[State], name: str) -> Prompt:
         if s is not None:
             p = s.prompts.get(name)
             if p is not None:
@@ -382,6 +401,108 @@ class Engine:
             name,
             "%s revision %d" % (self.what, s.manifest.revision) if s else "nothing loaded for " + self.what,
         )
+
+    def meta_for(self, p: Prompt, s: Optional[State]) -> PromptMeta:
+        with self.status_lock:
+            src = self.source
+        m = next((m for m in self.mirrors if m.name == src), None) if src else None
+        return PromptMeta(
+            name=p.name,
+            version=p.version,
+            sha256=p.sha256,
+            app=self.app,
+            env=self.env,
+            workspace=s.manifest.workspace if s is not None else "",
+            revision=s.manifest.revision if s is not None else 0,
+            source=m.source if m is not None else "",
+        )
+
+    def meta(self, name: str) -> PromptMeta:
+        s = self.state
+        return self.meta_for(self._find_in(s, name), s)
+
+    def render(self, name: str, values: Mapping[str, Any], strict: bool, on_missing: Optional[str]) -> str:
+        try:
+            return render_template(self.find(name).text, values, strict=strict, on_missing=on_missing)
+        except (NotFoundError, MissingVariableError) as e:
+            self.render_failed(name, e)
+            raise
+
+    def render_with_meta(
+        self, name: str, values: Mapping[str, Any], strict: bool, on_missing: Optional[str]
+    ) -> Rendered:
+        s = self.state
+        try:
+            p = self._find_in(s, name)
+            return Rendered(render_template(p.text, values, strict=strict, on_missing=on_missing), self.meta_for(p, s))
+        except (NotFoundError, MissingVariableError) as e:
+            self.render_failed(name, e)
+            raise
+
+    # --- telemetry --------------------------------------------------------------------
+    def render_failed(self, name: str, e: Exception) -> None:
+        if not self.observers:
+            return
+        error_type = "missing_variable" if isinstance(e, MissingVariableError) else "not_found"
+        for o in list(self.observers):
+            try:
+                o.on_render_error(self.app, self.env, name, error_type)
+            except Exception:
+                log.exception("observer raised")
+
+    def event(self, name: str, attributes: Dict[str, Any]) -> None:
+        if self.observers:
+            self._events.append(TelemetryEvent(name, time.time_ns(), attributes))
+
+    def fallback(self, mi: int, err: str) -> None:
+        m = self.mirrors[mi]
+        self.event(
+            "kyp.fallback",
+            {
+                "kyp.mirror": m.name,
+                "kyp.source": m.source,
+                "error.type": classify_error(err),
+                "kyp.error": _redact(err, self.key),
+            },
+        )
+
+    def begin_round(self) -> Tuple[int, float]:
+        self._events = []
+        return time.time_ns(), time.monotonic()
+
+    def emit_round(
+        self, trigger: str, started: Tuple[int, float], answered_by: int, prev: int, updated: bool, error: str
+    ) -> None:
+        events, self._events = self._events, []
+        if not self.observers:
+            return
+        s = self.state
+        m = self.mirrors[answered_by] if answered_by >= 0 else None
+        error_type = ""
+        if m is None:
+            fb = [e for e in events if e.name == "kyp.fallback"]
+            error_type = str(fb[-1].attributes["error.type"]) if fb else classify_error(error)
+        rec = RefreshRecord(
+            app=self.app,
+            env=self.env,
+            trigger=trigger,
+            result="failed" if m is None else ("updated" if updated else "not_modified"),
+            start_time_ns=started[0],
+            duration=max(0.0, time.monotonic() - started[1]),
+            mirror=m.name if m else "",
+            source=m.source if m else "",
+            revision=s.manifest.revision if s is not None else 0,
+            previous_revision=prev,
+            workspace=s.manifest.workspace if s is not None else "",
+            error="" if m else _redact(error, self.key),
+            error_type=error_type,
+            events=tuple(events),
+        )
+        for o in list(self.observers):
+            try:
+                o.on_refresh(rec)
+            except Exception:
+                log.exception("observer raised")
 
     def status(self) -> Status:
         s = self.state
@@ -485,6 +606,10 @@ class Engine:
                 continue
             if hashlib.sha256(r.body).hexdigest() != sha:
                 msg = "blob %s failed sha256 verification" % sha[:12]
+                self.event(
+                    "kyp.hash_mismatch",
+                    {"kyp.mirror": self.mirrors[i].name, "kyp.source": self.mirrors[i].source, "kyp.blob.sha256": sha},
+                )
                 self.log(logging.WARNING, "%s: %s (discarded)" % (self.mirrors[i].name, msg))
                 errors.append("%s: %s" % (self.mirrors[i].name, msg))
                 continue
@@ -540,6 +665,17 @@ class Engine:
         name = self.mirrors[mi].name
         with self.status_lock:
             self.source = name
+        n_changed = sum(1 for p in st.prompts.values() if old is None or _sha_of(old, p.name) != p.sha256)
+        if old is not None:
+            n_changed += sum(1 for n in old.prompts if n not in st.prompts)
+        self.event(
+            "kyp.update",
+            {
+                "kyp.revision.previous": old.manifest.revision if old else 0,
+                "kyp.revision": st.manifest.revision,
+                "kyp.prompts.changed": n_changed,
+            },
+        )
         self.log(
             logging.INFO,
             "loaded %s revision %d (%d prompts) from %s" % (self.what, st.manifest.revision, len(st.prompts), name),
@@ -554,27 +690,39 @@ class Engine:
 
     def load_local(self) -> Gen:
         """Start-up step 1: local mirrors only. The highest revision wins; ties go to the earlier mirror."""
+        started = self.begin_round()
         yield _Call(self._locate_cache)
         best: Optional[State] = None
         best_mi = -1
+        any_local = False
+        errs: List[str] = []
         for mi, m in enumerate(self.mirrors):
             if m.kind == "http":
                 continue
+            any_local = True
             oc, st, _etag, missing, err = yield from self.try_mirror(mi, best, False, float("inf"))
             if oc == UPDATED:
                 best, best_mi = st, mi
             elif oc == FAILED and not missing:
                 self.record_fail(mi, err, False)
+                self.fallback(mi, err)
+                errs.append("%s: %s" % (m.name, err))
         if best is not None:
             self.install(best, best_mi, False)
             if best_mi != self.cache_idx:
                 yield _Call(self._write_cache, best)
+        if any_local:  # only a round when there was something local to read
+            self.emit_round("start", started, best_mi, 0, best is not None, "; ".join(errs) or "no local copy")
+        else:
+            self._events = []
 
-    def round(self, ignore_backoff: bool, deadline: float) -> Gen:
+    def round(self, ignore_backoff: bool, deadline: float, trigger: str = "poll") -> Gen:
         """One refresh round over the polled mirrors, in order. Returns True if one answered."""
+        started = self.begin_round()
         cur = self.state
         errs: List[str] = []
         skipped: List[int] = []
+        result = {"by": -1, "updated": False}
 
         def attempt(mi: int) -> Gen:
             m = self.mirrors[mi]
@@ -584,6 +732,7 @@ class Engine:
                 self.install(st, mi, True)
                 yield _Call(self._write_cache, st)
                 self.record_ok(mi)
+                result["by"], result["updated"] = mi, True
                 return True
             if oc == UNCHANGED:
                 m.etag = etag or m.etag
@@ -591,9 +740,11 @@ class Engine:
                 if cur is not None:
                     with self.status_lock:
                         self.source = m.name
+                result["by"] = mi
                 return True
             errs.append("%s: %s" % (m.name, err))
             self.record_fail(mi, err, oc == FAILED)
+            self.fallback(mi, err)
             return False
 
         answered = False
@@ -621,6 +772,14 @@ class Engine:
             self.last_error = "all mirrors backing off" if (not answered and not joined) else joined
         if not answered and not self.stopped:
             self.log(logging.WARNING, "refresh failed, serving what is held: " + joined)
+        self.emit_round(
+            trigger,
+            started,
+            int(result["by"]),
+            cur.manifest.revision if cur is not None else 0,
+            bool(result["updated"]),
+            self.last_error,
+        )
         return answered
 
     def unavailable_message(self, timeout: float) -> str:

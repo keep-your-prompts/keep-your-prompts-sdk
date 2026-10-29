@@ -63,6 +63,38 @@ console.log(prompts.status());                            // which mirror served
 A delivery key (`kypd_...`) is read-only and scoped to a workspace and its apps: create one in the app under
 Settings > Delivery keys and keep it server-side.
 
+## Observability
+
+Every SDK can tell your traces **which deployed prompt version a call used**, and report how delivery is doing,
+with the same names in every language ([`protocol/tracing.md`](protocol/tracing.md)):
+
+- `meta(name)` / `renderWithMeta(name, vars)` return the prompt's name, version, SHA-256, app, env, workspace,
+  revision and which mirror served it, from memory, with helpers that turn it into span attributes or into flat
+  metadata maps for Langfuse, LangSmith and Helicone (no dependency on any of them).
+- An optional OpenTelemetry add-on puts `kyp.prompt.name`, `kyp.prompt.version`, `kyp.prompt.sha256`, `kyp.app`,
+  `kyp.env`, `kyp.revision`, `kyp.workspace`, `kyp.source` and the GenAI convention's `gen_ai.prompt.name` /
+  `gen_ai.prompt.version` on **your** LLM span, records `kyp.refresh` spans (events `kyp.fallback`,
+  `kyp.hash_mismatch`, `kyp.update`), and the metrics `kyp.refresh.duration`, `kyp.staleness`, `kyp.revision`,
+  `kyp.fallbacks`, `kyp.hash_mismatches` and `kyp.render.errors`.
+- **No prompt text or variable values** leave your process unless you turn on `captureContent`.
+
+| SDK | OpenTelemetry add-on |
+| --- | --- |
+| TypeScript | `@keepyourprompts/sdk/otel` (`@opentelemetry/api` as an optional peer dependency) |
+| Python | `pip install "keepyourprompts[otel]"`, module `keepyourprompts.otel` |
+| Go | module `github.com/keep-your-prompts/keep-your-prompts-sdk/go/otel` |
+| Java / Kotlin | `com.keepyourprompts.otel` (add `io.opentelemetry:opentelemetry-api`, an optional dependency) |
+| C# / .NET | package `KeepYourPrompts.OpenTelemetry` |
+
+```ts
+import { instrument } from '@keepyourprompts/sdk/otel';
+
+const otel = instrument(prompts);
+const { text, meta } = prompts.renderWithMeta('triage', { company: 'Acme' });
+otel.annotate(meta);                                  // on the active span: your model call's span
+prompts.report({ prompt: meta, outcome: 'success' }); // outcomes count against the body you actually used
+```
+
 ## How availability works
 
 Prompt bodies never change (`blobs/<sha256>`); only a small manifest per app environment (`envs/<app>/<env>.json`)

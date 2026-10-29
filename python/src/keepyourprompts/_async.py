@@ -8,13 +8,13 @@ import inspect
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, Generator, List, Mapping, Optional, TypeVar
+from typing import Any, Callable, Dict, Generator, List, Mapping, Optional, TypeVar, Union
 
 from ._engine import Engine, Gen, Options, Prompt, Status, Update, _Fetch, _jitter, _join, _redact
 from ._errors import UnavailableError
 from ._io import MAX_BODY, FetchResult, http_get, optional_httpx, post_json
 from ._outcomes import OutcomeBuffer, handle_status, make_event, outcomes_url
-from ._template import render_template
+from ._telemetry import PromptMeta, Rendered
 
 F = TypeVar("F", bound=Callable[[Update], Any])
 
@@ -125,7 +125,41 @@ class AsyncClient:
     ) -> str:
         values: Dict[str, Any] = dict(variables) if variables else {}
         values.update(kwargs)
-        return render_template(self._engine.find(name).text, values, strict=strict, on_missing=on_missing)
+        return self._engine.render(name, values, strict, on_missing)
+
+    def meta(self, name: str) -> PromptMeta:
+        """Which deployed body ``name`` is (name, version, sha256, app, env, workspace, revision, source).
+
+        Memory only. Raises :class:`NotFoundError`."""
+        return self._engine.meta(name)
+
+    def render_with_meta(
+        self,
+        name: str,
+        variables: Optional[Mapping[str, Any]] = None,
+        /,
+        *,
+        strict: bool = True,
+        on_missing: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Rendered:
+        """Like :meth:`render`, plus the :class:`PromptMeta` of the exact body rendered: ``r.text``, ``r.meta``."""
+        values: Dict[str, Any] = dict(variables) if variables else {}
+        values.update(kwargs)
+        return self._engine.render_with_meta(name, values, strict, on_missing)
+
+    def add_observer(self, observer: Any) -> Callable[[], None]:
+        """Subscribe to delivery telemetry (``on_refresh``, ``on_render_error``; see :class:`Observer`).
+
+        Returns a function that unsubscribes."""
+        obs = self._engine.observers
+        obs.append(observer)
+
+        def remove() -> None:
+            if observer in obs:
+                obs.remove(observer)
+
+        return remove
 
     def names(self) -> List[str]:
         s = self._engine.state
@@ -158,13 +192,13 @@ class AsyncClient:
         if not e.polled or self._closed or self._lock is None:
             return False
         async with self._lock:
-            ok = bool(await self._drive(e.round(True, float("inf"))))
+            ok = bool(await self._drive(e.round(True, float("inf"), "manual")))
         await self._deliver()
         return ok
 
     def report(
         self,
-        prompt: str,
+        prompt: Union[str, PromptMeta, Rendered],
         outcome: str,
         *,
         latency_ms: Optional[float] = None,
@@ -328,7 +362,7 @@ class AsyncClient:
         assert self._lock is not None
         while e.state is None:
             async with self._lock:
-                await self._drive(e.round(True, deadline))
+                await self._drive(e.round(True, deadline, "start"))
             remaining = deadline - time.monotonic()
             if e.state is not None or remaining <= 0.1:
                 break
@@ -351,7 +385,7 @@ class AsyncClient:
             first = False
             try:
                 async with self._lock:
-                    await self._drive(e.round(False, float("inf")))
+                    await self._drive(e.round(False, float("inf"), "poll"))
             except asyncio.CancelledError:
                 raise
             except Exception as ex:

@@ -11,7 +11,7 @@ requires-python = ">=3.9"
 # PEP 639. LICENSE is the repository root file, copied here by the release workflow.
 license = "LicenseRef-Republic-Lex-Aequa-1.0"
 license-files = ["LICENSE"]
-keywords = ["prompts", "llm", "prompt-management", "anthropic", "openai"]
+keywords = ["prompts", "llm", "prompt-management", "anthropic", "openai", "opentelemetry"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -29,7 +29,9 @@ dependencies = []
 
 [project.optional-dependencies]
 httpx = ["httpx>=0.24"]
-dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.6", "httpx>=0.24"]
+# keepyourprompts.otel: spans, metrics and annotate() (protocol/tracing.md)
+otel = ["opentelemetry-api>=1.20"]
+dev = ["pytest>=7", "pytest-asyncio>=0.21", "ruff>=0.6", "httpx>=0.24", "opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20"]
 
 [project.urls]
 Homepage = "https://keepyourprompts.com"
