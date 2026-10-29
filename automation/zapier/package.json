@@ -1,0 +1,28 @@
+{
+  "name": "keepyourprompts-zapier",
+  "version": "0.1.0",
+  "description": "Zapier integration for Keep Your Prompts: instant triggers on signed webhook events, find and render prompts, create prompts, save versions, deploy, roll back and capture.",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://keepyourprompts.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keep-your-prompts/keep-your-prompts-sdk.git",
+    "directory": "automation/zapier"
+  },
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "jest --testTimeout 10000",
+    "validate": "zapier-platform validate --without-style"
+  },
+  "dependencies": {
+    "zapier-platform-core": "19.2.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nock": "^14.0.17"
+  }
+}
