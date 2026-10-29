@@ -29,6 +29,9 @@ mod engine;
 mod error;
 mod fetch;
 mod manifest;
+#[cfg(feature = "otel")]
+pub mod otel;
+mod telemetry;
 mod template;
 
 #[cfg(feature = "tokio")]
@@ -37,6 +40,10 @@ pub use client::{embed_module_source, pull_snapshot, Builder, Client, SnapshotIn
 pub use engine::{EmbeddedFiles, LogLevel, Mirror, MirrorStatus, Prompt, Status, Update};
 pub use error::{Error, Result};
 pub use manifest::{parse_manifest, sha256_hex, Manifest, ManifestPrompt};
+pub use telemetry::{
+    classify_error, normalize_source, AttrValue, Attributes, MirrorKind, Observer, ObserverId, PromptMeta,
+    RefreshRecord, RefreshResult, RefreshTrigger, RenderError, Rendered, TelemetryEvent,
+};
 pub use template::{render, variables_in, OnMissing, Vars};
 
 /// SDK version.

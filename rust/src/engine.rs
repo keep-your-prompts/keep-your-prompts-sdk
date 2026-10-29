@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use arc_swap::ArcSwapOption;
@@ -13,6 +13,10 @@ use arc_swap::ArcSwapOption;
 use crate::error::{Error, Result};
 use crate::fetch::{self, Fetched, Request, Transport};
 use crate::manifest::{self, Manifest};
+use crate::telemetry::{
+    classify_error, normalize_source, AttrValue, Attributes, MirrorKind, Observer, ObserverId, PromptMeta,
+    RefreshRecord, RefreshResult, RefreshTrigger, RenderError, TelemetryEvent,
+};
 use crate::template::{self, OnMissing, Vars};
 
 // ===========================================================================
@@ -180,6 +184,7 @@ pub(crate) struct Config {
     pub on_update: Option<UpdateFn>,
     pub logger: Option<LogFn>,
     pub log_level: Option<LogLevel>,
+    pub observers: Vec<Arc<dyn Observer>>,
 }
 
 impl Default for Config {
@@ -209,6 +214,7 @@ impl Default for Config {
             on_update: None,
             logger: None,
             log_level: Some(LogLevel::Warn),
+            observers: Vec::new(),
         }
     }
 }
@@ -260,6 +266,7 @@ struct MirrorRt {
 pub(crate) struct MirrorEntry {
     cfg: Mirror,
     kind: Kind,
+    source: &'static str,
     shown_url: String,
     rt: Mutex<MirrorRt>,
 }
@@ -311,6 +318,16 @@ pub(crate) struct Engine<T: Transport> {
     status: Mutex<StatusInner>,
     pending: Mutex<Vec<Update>>,
     pub stop: AtomicBool,
+    // --- telemetry (protocol/tracing.md) ---
+    /// Mirror that served or last confirmed the state (usize::MAX: none), read lock-free by `meta`.
+    source_idx: AtomicUsize,
+    observers: RwLock<Vec<(u64, Arc<dyn Observer>)>>,
+    has_observers: AtomicBool,
+    next_observer: AtomicU64,
+    /// Span events of the round in progress (rounds run one at a time).
+    events: Mutex<Vec<TelemetryEvent>>,
+    /// Finished rounds not yet handed to the observers (see `deliver_updates`).
+    records: Mutex<Vec<RefreshRecord>>,
 }
 
 impl<T: Transport> Engine<T> {
@@ -362,7 +379,14 @@ impl<T: Transport> Engine<T> {
         let mut mirrors = Vec::new();
         let key = cfg.delivery_key.clone();
         let mut add = |m: Mirror, kind: Kind| {
-            mirrors.push(MirrorEntry { shown_url: redact(&m.url, &key), cfg: m, kind, rt: Mutex::default() });
+            let mk = match kind {
+                Kind::Embedded => MirrorKind::Embedded,
+                Kind::File => MirrorKind::File,
+                Kind::Cache => MirrorKind::Cache,
+                Kind::Http => MirrorKind::Http,
+            };
+            let source = normalize_source(&m.name, mk);
+            mirrors.push(MirrorEntry { shown_url: redact(&m.url, &key), cfg: m, kind, source, rt: Mutex::default() });
         };
         let explicit_embedded = rest.iter().any(|m| kind_of(&m.url) == Kind::Embedded);
         if cfg.use_embedded && has_embedded && !explicit_embedded {
@@ -421,6 +445,12 @@ impl<T: Transport> Engine<T> {
             }),
             pending: Mutex::new(Vec::new()),
             stop: AtomicBool::new(false),
+            source_idx: AtomicUsize::new(usize::MAX),
+            has_observers: AtomicBool::new(!cfg.observers.is_empty()),
+            observers: RwLock::new(cfg.observers.iter().enumerate().map(|(i, o)| (i as u64, o.clone())).collect()),
+            next_observer: AtomicU64::new(cfg.observers.len() as u64),
+            events: Mutex::new(Vec::new()),
+            records: Mutex::new(Vec::new()),
             cfg,
         };
         if !e.cfg.delivery_key.is_empty() && !e.cfg.delivery_key.starts_with("kypd_") {
@@ -616,6 +646,14 @@ impl<T: Transport> Engine<T> {
             };
             if manifest::sha256_hex(&body) != sha {
                 let msg = format!("blob {} failed sha256 verification", &sha[..12]);
+                self.event(
+                    "kyp.hash_mismatch",
+                    vec![
+                        ("kyp.mirror", self.mirrors[i].cfg.name.as_str().into()),
+                        ("kyp.source", self.mirrors[i].source.into()),
+                        ("kyp.blob.sha256", sha.into()),
+                    ],
+                );
                 self.log(LogLevel::Warn, &format!("{}: {msg} (discarded)", self.mirrors[i].cfg.name));
                 errors.push_str(&format!("{}: {msg}; ", self.mirrors[i].cfg.name));
                 continue;
@@ -717,6 +755,27 @@ impl<T: Transport> Engine<T> {
         self.state.store(Some(st.clone()));
         let name = self.mirrors[mi].cfg.name.clone();
         lock(&self.status).source = name.clone();
+        self.source_idx.store(mi, Ordering::Release);
+        if self.has_observers.load(Ordering::Relaxed) {
+            let mut changed = st
+                .names
+                .iter()
+                .filter(|n| {
+                    old.as_ref().and_then(|o| o.prompts.get(*n)).map_or(true, |b| b.sha256 != st.prompts[*n].sha256)
+                })
+                .count();
+            if let Some(o) = &old {
+                changed += o.names.iter().filter(|n| !st.prompts.contains_key(*n)).count();
+            }
+            self.event(
+                "kyp.update",
+                vec![
+                    ("kyp.revision.previous", old.as_ref().map_or(0, |o| o.manifest.revision).into()),
+                    ("kyp.revision", st.manifest.revision.into()),
+                    ("kyp.prompts.changed", (changed as i64).into()),
+                ],
+            );
+        }
         self.log(
             LogLevel::Info,
             &format!(
@@ -749,8 +808,10 @@ impl<T: Transport> Engine<T> {
         true
     }
 
-    /// Runs `on_update` for swaps made since the last call (outside any lock).
+    /// Runs the observers for finished rounds, then `on_update` for swaps made since the last
+    /// call (outside any lock).
     pub fn deliver_updates(&self) {
+        self.deliver_records();
         let todo = std::mem::take(&mut *lock(&self.pending));
         let Some(cb) = &self.cfg.on_update else { return };
         for u in todo {
@@ -766,33 +827,54 @@ impl<T: Transport> Engine<T> {
 
     /// Start-up step 1: local mirrors only. The highest revision wins; ties go to the earlier mirror.
     pub async fn load_local(&self) {
+        let started = (SystemTime::now(), Instant::now());
+        lock(&self.events).clear();
         self.locate_cache();
         let mut best: Option<(Arc<State>, usize)> = None;
+        let mut errs: Vec<String> = Vec::new();
+        let mut any_local = false;
         for mi in 0..self.mirrors.len() {
             if self.mirrors[mi].kind == Kind::Http {
                 continue;
             }
+            any_local = true;
             let cur = best.as_ref().map(|(s, _)| s.as_ref());
             match self.try_mirror(mi, cur, false, None, true).await {
                 Outcome::Updated(st, _) => best = Some((st, mi)),
-                Outcome::Failed { err, missing: false } => self.record_fail(mi, &err, false),
+                Outcome::Failed { err, missing: false } => {
+                    self.record_fail(mi, &err, false);
+                    self.fallback(mi, &err);
+                    errs.push(format!("{}: {err}", self.mirrors[mi].cfg.name));
+                }
                 _ => {}
             }
         }
+        let answered = best.as_ref().map(|(_, mi)| *mi);
         if let Some((st, mi)) = best {
             self.install(st.clone(), mi, false);
             if Some(mi) != self.cache_idx {
                 self.write_cache(&st);
             }
         }
+        // Only a round when there was something local to read.
+        if any_local {
+            let err = if errs.is_empty() { "no local copy".to_owned() } else { errs.join("; ") };
+            self.finish_record(RefreshTrigger::Start, started, answered, answered.is_some(), 0, &err);
+        } else {
+            lock(&self.events).clear();
+        }
     }
 
     /// One refresh round over the polled mirrors, in order. Returns true if a mirror answered.
-    pub async fn round(&self, ignore_backoff: bool, deadline: Option<Instant>) -> bool {
+    pub async fn round(&self, ignore_backoff: bool, deadline: Option<Instant>, trigger: RefreshTrigger) -> bool {
+        let started = (SystemTime::now(), Instant::now());
+        lock(&self.events).clear();
         let cur = self.state.load_full();
         let mut errs: Vec<String> = Vec::new();
         let mut skipped = Vec::new();
         let mut answered = false;
+        let mut answered_by = None;
+        let mut updated = false;
         for &mi in &self.polled {
             if self.stop.load(Ordering::Relaxed) {
                 break;
@@ -801,8 +883,8 @@ impl<T: Transport> Engine<T> {
                 skipped.push(mi);
                 continue;
             }
-            if self.attempt(mi, cur.as_deref(), deadline, &mut errs).await {
-                answered = true;
+            if let Some(installed) = self.attempt(mi, cur.as_deref(), deadline, &mut errs).await {
+                (answered, answered_by, updated) = (true, Some(mi), installed);
                 break;
             }
         }
@@ -812,54 +894,222 @@ impl<T: Transport> Engine<T> {
                 if self.stop.load(Ordering::Relaxed) {
                     break;
                 }
-                if self.attempt(mi, cur.as_deref(), deadline, &mut errs).await {
-                    answered = true;
+                if let Some(installed) = self.attempt(mi, cur.as_deref(), deadline, &mut errs).await {
+                    (answered, answered_by, updated) = (true, Some(mi), installed);
                     break;
                 }
             }
         }
         let joined = errs.join("; ");
+        let last_error =
+            if !answered && joined.is_empty() { "all mirrors backing off".to_owned() } else { joined.clone() };
         {
             let mut st = lock(&self.status);
             if answered {
                 st.last_success = Some(SystemTime::now());
             }
-            st.last_error =
-                if !answered && joined.is_empty() { "all mirrors backing off".into() } else { joined.clone() };
+            st.last_error = last_error.clone();
         }
         if !answered && !self.stop.load(Ordering::Relaxed) {
             self.log(LogLevel::Warn, &format!("refresh failed, serving what is held: {joined}"));
         }
+        let previous = cur.as_ref().map_or(0, |c| c.manifest.revision);
+        self.finish_record(trigger, started, answered_by, updated, previous, &last_error);
         answered
     }
 
-    async fn attempt(&self, mi: usize, cur: Option<&State>, deadline: Option<Instant>, errs: &mut Vec<String>) -> bool {
+    /// Asks mirror `mi`: `None` if it did not answer, `Some(installed)` if it did.
+    async fn attempt(
+        &self,
+        mi: usize,
+        cur: Option<&State>,
+        deadline: Option<Instant>,
+        errs: &mut Vec<String>,
+    ) -> Option<bool> {
         let name = self.mirrors[mi].cfg.name.clone();
         match self.try_mirror(mi, cur, true, deadline, false).await {
             Outcome::Updated(st, etag) => {
                 self.record_ok(mi, Some(etag));
-                if self.install(st.clone(), mi, true) {
+                let installed = self.install(st.clone(), mi, true);
+                if installed {
                     self.write_cache(&st);
                 }
-                true
+                Some(installed)
             }
             Outcome::Unchanged(etag) => {
                 self.record_ok(mi, Some(etag));
                 if cur.is_some() {
                     lock(&self.status).source = name;
+                    self.source_idx.store(mi, Ordering::Release);
                 }
-                true
+                Some(false)
             }
             Outcome::Stale(err) => {
                 errs.push(format!("{name}: {err}"));
                 self.record_fail(mi, &err, false);
-                false
+                self.fallback(mi, &err);
+                None
             }
             Outcome::Failed { err, .. } => {
                 errs.push(format!("{name}: {err}"));
                 self.record_fail(mi, &err, true);
-                false
+                self.fallback(mi, &err);
+                None
             }
+        }
+    }
+
+    // --- telemetry (protocol/tracing.md) ------------------------------------
+    pub fn meta_of(&self, p: &Prompt, s: &State) -> PromptMeta {
+        let si = self.source_idx.load(Ordering::Acquire);
+        PromptMeta {
+            name: p.name.clone(),
+            version: p.version,
+            sha256: p.sha256.clone(),
+            app: self.cfg.app.clone(),
+            env: self.cfg.env.clone(),
+            workspace: s.manifest.workspace.clone(),
+            revision: s.manifest.revision,
+            source: self.mirrors.get(si).map_or("", |m| m.source).to_owned(),
+        }
+    }
+
+    pub fn add_observer(&self, o: Arc<dyn Observer>) -> ObserverId {
+        let id = self.next_observer.fetch_add(1, Ordering::Relaxed);
+        let mut obs = self.observers.write().unwrap_or_else(|e| e.into_inner());
+        obs.push((id, o));
+        self.has_observers.store(true, Ordering::Relaxed);
+        ObserverId(id)
+    }
+
+    /// Adds `o` unless that very observer is already subscribed (e.g. via `Builder::observer`).
+    #[cfg_attr(not(feature = "otel"), allow(dead_code))]
+    pub fn add_observer_unless_present(&self, o: Arc<dyn Observer>) -> Option<ObserverId> {
+        let present = self
+            .observers
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|(_, x)| Arc::as_ptr(x).cast::<()>() == Arc::as_ptr(&o).cast::<()>());
+        if present {
+            None
+        } else {
+            Some(self.add_observer(o))
+        }
+    }
+
+    pub fn remove_observer(&self, id: ObserverId) -> bool {
+        let mut obs = self.observers.write().unwrap_or_else(|e| e.into_inner());
+        let before = obs.len();
+        obs.retain(|(i, _)| *i != id.0);
+        self.has_observers.store(!obs.is_empty(), Ordering::Relaxed);
+        obs.len() != before
+    }
+
+    fn each_observer(&self, f: impl Fn(&dyn Observer)) {
+        let obs: Vec<Arc<dyn Observer>> =
+            self.observers.read().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, o)| o.clone()).collect();
+        for o in obs {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(o.as_ref()))).is_err() {
+                self.log(LogLevel::Error, "observer panicked");
+            }
+        }
+    }
+
+    /// Called by the read API when a render fails (never on the success path).
+    pub fn render_failed(&self, name: &str, err: &Error) {
+        if !self.has_observers.load(Ordering::Relaxed) {
+            return;
+        }
+        let error_type = match err {
+            Error::MissingVariable { .. } => "missing_variable",
+            Error::NotFound { .. } => "not_found",
+            _ => return,
+        };
+        let e = RenderError { app: self.cfg.app.clone(), env: self.cfg.env.clone(), name: name.to_owned(), error_type };
+        self.each_observer(|o| o.on_render_error(&e));
+    }
+
+    /// Hands finished rounds to the observers (outside any lock).
+    pub fn deliver_records(&self) {
+        let todo = std::mem::take(&mut *lock(&self.records));
+        for r in todo {
+            self.each_observer(|o| o.on_refresh(&r));
+        }
+    }
+
+    fn event(&self, name: &'static str, attributes: Attributes) {
+        if self.has_observers.load(Ordering::Relaxed) {
+            lock(&self.events).push(TelemetryEvent { name, time: SystemTime::now(), attributes });
+        }
+    }
+
+    fn fallback(&self, mi: usize, err: &str) {
+        let m = &self.mirrors[mi];
+        self.event(
+            "kyp.fallback",
+            vec![
+                ("kyp.mirror", m.cfg.name.as_str().into()),
+                ("kyp.source", m.source.into()),
+                ("error.type", classify_error(err).into()),
+                ("kyp.error", AttrValue::Str(redact(err, &self.cfg.delivery_key))),
+            ],
+        );
+    }
+
+    fn finish_record(
+        &self,
+        trigger: RefreshTrigger,
+        started: (SystemTime, Instant),
+        answered_by: Option<usize>,
+        updated: bool,
+        previous: i64,
+        error: &str,
+    ) {
+        let events = std::mem::take(&mut *lock(&self.events));
+        if !self.has_observers.load(Ordering::Relaxed) {
+            return;
+        }
+        let s = self.state.load_full();
+        let failed = answered_by.is_none();
+        let error_type = if failed {
+            events
+                .iter()
+                .rev()
+                .find(|e| e.name == "kyp.fallback")
+                .and_then(|e| e.attr("error.type"))
+                .map_or_else(|| classify_error(error), |v| v.to_string())
+        } else {
+            String::new()
+        };
+        let m = answered_by.map(|i| &self.mirrors[i]);
+        let rec = RefreshRecord {
+            app: self.cfg.app.clone(),
+            env: self.cfg.env.clone(),
+            trigger,
+            result: if failed {
+                RefreshResult::Failed
+            } else if updated {
+                RefreshResult::Updated
+            } else {
+                RefreshResult::NotModified
+            },
+            start_time: started.0,
+            duration: started.1.elapsed(),
+            mirror: m.map(|m| m.cfg.name.clone()).unwrap_or_default(),
+            source: m.map_or("", |m| m.source).to_owned(),
+            revision: s.as_ref().map_or(0, |s| s.manifest.revision),
+            previous_revision: previous,
+            workspace: s.as_ref().map(|s| s.manifest.workspace.clone()).unwrap_or_default(),
+            error: if failed { redact(error, &self.cfg.delivery_key) } else { String::new() },
+            error_type,
+            events,
+        };
+        let mut recs = lock(&self.records);
+        recs.push(rec);
+        // Bounded, in case nothing drains it.
+        if recs.len() > 64 {
+            recs.remove(0);
         }
     }
 
@@ -991,10 +1241,72 @@ macro_rules! read_api {
             on_missing: $crate::OnMissing,
         ) -> $crate::Result<String> {
             let g = self.engine.state();
-            match (*g).as_ref().and_then(|s| s.prompts.get(name)) {
+            let r = match (*g).as_ref().and_then(|s| s.prompts.get(name)) {
                 Some(p) => $crate::render(&p.text, vars, on_missing),
                 None => Err($crate::Error::NotFound { name: name.to_owned() }),
+            };
+            if let Err(e) = &r {
+                self.engine.render_failed(name, e);
             }
+            r
+        }
+
+        /// Which deployed body `name` is: name, version, sha256, app, env, workspace, revision
+        /// and the mirror kind that served it (`protocol/tracing.md`). Memory only.
+        pub fn meta(&self, name: &str) -> $crate::Result<$crate::PromptMeta> {
+            let g = self.engine.state();
+            match (*g).as_ref().and_then(|s| s.prompts.get(name).map(|p| (s, p))) {
+                Some((s, p)) => Ok(self.engine.meta_of(p, s)),
+                None => Err($crate::Error::NotFound { name: name.to_owned() }),
+            }
+        }
+
+        /// [`render`](Self::render) plus the metadata of the exact body rendered.
+        pub fn render_with_meta<V: $crate::Vars + ?Sized>(
+            &self,
+            name: &str,
+            vars: &V,
+        ) -> $crate::Result<$crate::Rendered> {
+            self.render_with_meta_opts(name, vars, $crate::OnMissing::Error)
+        }
+
+        /// [`render_with`](Self::render_with) plus the metadata of the exact body rendered.
+        pub fn render_with_meta_opts<V: $crate::Vars + ?Sized>(
+            &self,
+            name: &str,
+            vars: &V,
+            on_missing: $crate::OnMissing,
+        ) -> $crate::Result<$crate::Rendered> {
+            let g = self.engine.state();
+            let r = match (*g).as_ref().and_then(|s| s.prompts.get(name).map(|p| (s, p))) {
+                Some((s, p)) => $crate::render(&p.text, vars, on_missing)
+                    .map(|text| $crate::Rendered { text, meta: self.engine.meta_of(p, s) }),
+                None => Err($crate::Error::NotFound { name: name.to_owned() }),
+            };
+            if let Err(e) = &r {
+                self.engine.render_failed(name, e);
+            }
+            r
+        }
+
+        /// Subscribes to delivery telemetry (refresh rounds, render errors).
+        pub fn add_observer(&self, observer: std::sync::Arc<dyn $crate::Observer>) -> $crate::ObserverId {
+            self.engine.add_observer(observer)
+        }
+
+        /// Unsubscribes an observer. Returns whether it was subscribed.
+        pub fn remove_observer(&self, id: $crate::ObserverId) -> bool {
+            self.engine.remove_observer(id)
+        }
+
+        /// App slug the client is configured with.
+        pub fn app(&self) -> &str {
+            &self.engine.cfg.app
+        }
+
+        /// Environment slug the client is configured with.
+        pub fn env(&self) -> &str {
+            &self.engine.cfg.env
         }
 
         /// Prompt names in the current revision, sorted.

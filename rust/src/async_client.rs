@@ -8,6 +8,7 @@ use crate::client::Builder;
 use crate::engine::{read_api, Engine, LogLevel};
 use crate::error::{Error, Result};
 use crate::fetch::ReqwestTransport;
+use crate::telemetry::RefreshTrigger;
 
 /// The tokio client. Reads are the same lock-free, memory-only calls as on
 /// [`Client`](crate::Client); refreshing runs as a tokio task that is aborted on drop.
@@ -19,7 +20,7 @@ use crate::fetch::ReqwestTransport;
 /// # Ok(()) }
 /// ```
 pub struct AsyncClient {
-    engine: Arc<Engine<ReqwestTransport>>,
+    pub(crate) engine: Arc<Engine<ReqwestTransport>>,
     refresh: Arc<tokio::sync::Mutex<()>>,
     task: Option<tokio::task::JoinHandle<()>>,
 }
@@ -35,6 +36,7 @@ impl Builder {
     pub async fn build_async(self) -> Result<AsyncClient> {
         let engine = Arc::new(Engine::new(self.cfg, ReqwestTransport::new, false)?);
         engine.load_local().await;
+        engine.deliver_records();
         let loaded_locally = engine.current().is_some();
         let refresh = Arc::new(tokio::sync::Mutex::new(()));
         if !loaded_locally {
@@ -48,7 +50,7 @@ impl Builder {
                 while engine.current().is_none() {
                     {
                         let _g = refresh.lock().await;
-                        engine.round(true, Some(deadline)).await;
+                        engine.round(true, Some(deadline), RefreshTrigger::Start).await;
                     }
                     if engine.current().is_some() || Instant::now() + delay >= deadline {
                         break;
@@ -57,6 +59,7 @@ impl Builder {
                     delay = (delay * 2).min(Duration::from_secs(1));
                 }
                 engine.clear_pending();
+                engine.deliver_records();
                 if engine.current().is_none() {
                     let err = engine.last_error();
                     if !engine.cfg.start_empty {
@@ -84,7 +87,7 @@ impl Builder {
                     first = false;
                     {
                         let _g = r.lock().await;
-                        e.round(false, None).await;
+                        e.round(false, None, RefreshTrigger::Poll).await;
                     }
                     e.deliver_updates();
                 }
@@ -104,7 +107,7 @@ impl AsyncClient {
         }
         let ok = {
             let _g = self.refresh.lock().await;
-            self.engine.round(true, None).await
+            self.engine.round(true, None, RefreshTrigger::Manual).await
         };
         self.engine.deliver_updates();
         ok
