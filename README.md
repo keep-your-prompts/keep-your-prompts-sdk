@@ -85,6 +85,11 @@ with the same names in every language ([`protocol/tracing.md`](protocol/tracing.
 | Go | module `github.com/keep-your-prompts/keep-your-prompts-sdk/go/otel` |
 | Java / Kotlin | `com.keepyourprompts.otel` (add `io.opentelemetry:opentelemetry-api`, an optional dependency) |
 | C# / .NET | package `KeepYourPrompts.OpenTelemetry` |
+| C++ | CMake `-DKYP_WITH_OTEL=ON`, target `kyp::otel` (`<kyp/otel.hpp>`); `<kyp/tracing.hpp>` bridges any tracer |
+| Rust | cargo feature `otel` (`kyp::otel`) |
+| Swift | product `KeepYourPromptsOTel` |
+| PHP | `KeepYourPrompts\OpenTelemetry\Instrumentation` (suggests `open-telemetry/api`) |
+| Ruby | `require "keepyourprompts/otel"` (with `opentelemetry-api`) |
 
 ```ts
 import { instrument } from '@keepyourprompts/sdk/otel';
@@ -94,6 +99,25 @@ const { text, meta } = prompts.renderWithMeta('triage', { company: 'Acme' });
 otel.annotate(meta);                                  // on the active span: your model call's span
 prompts.report({ prompt: meta, outcome: 'success' }); // outcomes count against the body you actually used
 ```
+
+## Framework adapters
+
+Separate packages under [`adapters/`](adapters/README.md) plug deployed prompts into AI frameworks. Each depends on the
+matching core SDK and on the framework; rendering, strict variables and memory-only reads are the core SDK's, and
+every adapter exposes the prompt's name, version and SHA-256 for tracing.
+
+| Framework | Package | Folder |
+| --- | --- | --- |
+| Vercel AI SDK | `@keepyourprompts/ai-sdk` | [`adapters/vercel-ai/`](adapters/vercel-ai) |
+| LangChain.js | `@keepyourprompts/langchain` | [`adapters/langchain-js/`](adapters/langchain-js) |
+| LangChain (Python) | `keepyourprompts-langchain` | [`adapters/langchain-python/`](adapters/langchain-python) |
+| LlamaIndex | `keepyourprompts-llamaindex` | [`adapters/llamaindex-python/`](adapters/llamaindex-python) |
+| OpenAI Agents SDK (Python) | `keepyourprompts-openai-agents` | [`adapters/openai-agents-python/`](adapters/openai-agents-python) |
+| OpenAI Agents SDK (JS) | `@keepyourprompts/openai-agents` | [`adapters/openai-agents-js/`](adapters/openai-agents-js) |
+| Claude Agent SDK (TypeScript) | `@keepyourprompts/claude-agent-sdk` | [`adapters/claude-agent-sdk-ts/`](adapters/claude-agent-sdk-ts) |
+| Claude Agent SDK (Python) | `keepyourprompts-claude-agent-sdk` | [`adapters/claude-agent-sdk-python/`](adapters/claude-agent-sdk-python) |
+| Spring AI | `com.keepyourprompts:kyp-spring-ai` | [`adapters/spring-ai/`](adapters/spring-ai) |
+| Semantic Kernel (.NET) | `KeepYourPrompts.SemanticKernel` | [`adapters/semantic-kernel-dotnet/`](adapters/semantic-kernel-dotnet) |
 
 ## How availability works
 

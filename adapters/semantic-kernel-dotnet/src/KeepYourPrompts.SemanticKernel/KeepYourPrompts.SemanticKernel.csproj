@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;netstandard2.0</TargetFrameworks>
+    <RootNamespace>KeepYourPrompts.SemanticKernel</RootNamespace>
+    <AssemblyName>KeepYourPrompts.SemanticKernel</AssemblyName>
+    <PackageId>KeepYourPrompts.SemanticKernel</PackageId>
+    <Description>Keep Your Prompts for Semantic Kernel: an IPromptTemplateFactory for {{var}} templates rendered like the core SDK, and KernelFunctions that render the deployed prompt on every call.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Semantic Kernel marks some APIs experimental. -->
+    <NoWarn>$(NoWarn);SKEXP0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Packed as a dependency on the published KeepYourPrompts.Sdk package. -->
+    <ProjectReference Include="../../../../dotnet/src/KeepYourPrompts.Sdk/KeepYourPrompts.Sdk.csproj" />
+    <!-- The framework: any 1.x from the version tested here. -->
+    <PackageReference Include="Microsoft.SemanticKernel.Core" Version="[1.81.0, 2.0.0)" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

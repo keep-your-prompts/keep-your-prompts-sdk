@@ -1,6 +1,6 @@
 # Root ignore list. Each SDK folder may add its own .gitignore; this file covers all of them.
 #
-# Lockfiles: typescript/package-lock.json IS committed (CI runs `npm ci`). The libraries resolve
+# Lockfiles: typescript/package-lock.json and adapters/*/package-lock.json ARE committed (CI runs `npm ci`). The libraries resolve
 # dependencies fresh in CI and do not commit lockfiles: rust/Cargo.lock, php/composer.lock,
 # ruby/Gemfile.lock, Package.resolved (see the per-language workflows).
 
@@ -132,3 +132,12 @@ DerivedData/
 /integrations/**/dist/
 *.mcpb
 *.zip
+
+# --- Framework adapters (adapters/) ------------------------------------------
+/adapters/*/dist/
+/adapters/*/LICENSE
+/adapters/*/build/
+/adapters/*/target/
+/adapters/**/bin/
+/adapters/**/obj/
+/adapters/*/artifacts/

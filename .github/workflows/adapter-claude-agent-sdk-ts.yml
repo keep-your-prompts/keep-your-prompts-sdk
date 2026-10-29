@@ -1,0 +1,87 @@
+name: adapter-claude-agent-sdk-ts
+
+on:
+  push:
+    branches: [main]
+    tags: ['claude-agent-sdk-ts-v*'] # path filters are not evaluated for tag pushes
+    paths: ['adapters/claude-agent-sdk-ts/**', 'typescript/**', 'conformance/fixtures/**', '.github/workflows/adapter-claude-agent-sdk-ts.yml']
+  pull_request:
+    paths: ['adapters/claude-agent-sdk-ts/**', 'typescript/**', 'conformance/fixtures/**', '.github/workflows/adapter-claude-agent-sdk-ts.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adapter-claude-agent-sdk-ts-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: adapters/claude-agent-sdk-ts
+    shell: bash
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24, 26]
+    runs-on: ubuntu-latest
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            typescript/package-lock.json
+            adapters/claude-agent-sdk-ts/package-lock.json
+      # The core SDK (@keepyourprompts/sdk) is a dev dependency linked from ../../typescript.
+      - name: Build the core SDK
+        working-directory: typescript
+        run: npm ci && npm run build
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Test (unit tests; the real-session test is opt-in with KYP_CLAUDE_E2E=1)
+        run: npm test
+      - name: Package contents
+        if: matrix.node == 24
+        run: npm pack --dry-run
+
+  publish:
+    name: publish to npm
+    if: startsWith(github.ref, 'refs/tags/claude-agent-sdk-ts-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC) and provenance: no token stored
+    steps:
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Check the tag matches the version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "claude-agent-sdk-ts-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != ${version}"; exit 1; }
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@latest
+      - name: Build the core SDK
+        working-directory: typescript
+        run: npm ci && npm run build
+      - run: npm ci
+      - run: npm run build
+      - name: Ship the repository's license in the package
+        run: cp ../../LICENSE LICENSE
+      - name: Publish @keepyourprompts/claude-agent-sdk (trusted publishing, with provenance)
+        run: npm publish --provenance --access public

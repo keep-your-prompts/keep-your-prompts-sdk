@@ -238,7 +238,7 @@ Example alerts: `max(kyp_staleness_seconds) > 600` (nothing confirmed in 10 minu
 `PromptMeta` (or the result of `renderWithMeta`) in place of a prompt name, and then sends **its** `sha256`, so an
 outcome is attributed to the body the call actually used even when a new revision arrived between render and report.
 Reporting by name keeps working (it uses the body held at report time). The wire format is unchanged.
-SDKs without outcome reporting (Java and .NET today) simply have nothing to wire.
+SDKs without outcome reporting (Java, .NET, C++, Rust, Swift, PHP and Ruby today) simply have nothing to wire.
 
 ## SDK architecture: no hard dependency on OpenTelemetry
 

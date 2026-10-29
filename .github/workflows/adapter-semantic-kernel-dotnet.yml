@@ -1,0 +1,92 @@
+name: adapter-semantic-kernel-dotnet
+
+on:
+  push:
+    branches: [main]
+    tags: ['semantic-kernel-dotnet-v*']
+    paths: ['adapters/semantic-kernel-dotnet/**', 'dotnet/src/**', 'dotnet/Directory.Build.props', 'conformance/fixtures/**', '.github/workflows/adapter-semantic-kernel-dotnet.yml']
+  pull_request:
+    paths: ['adapters/semantic-kernel-dotnet/**', 'dotnet/src/**', 'dotnet/Directory.Build.props', 'conformance/fixtures/**', '.github/workflows/adapter-semantic-kernel-dotnet.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adapter-semantic-kernel-dotnet-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: adapters/semantic-kernel-dotnet
+    shell: bash
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  CI: 'true'
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+          cache: true
+          cache-dependency-path: |
+            dotnet/**/*.csproj
+            adapters/semantic-kernel-dotnet/**/*.csproj
+      - run: dotnet restore KeepYourPrompts.SemanticKernel.sln
+      - name: Build (net8.0 and netstandard2.0, warnings are errors)
+        run: dotnet build KeepYourPrompts.SemanticKernel.sln -c Release --no-restore
+      - name: Test on net8.0 and net10.0 (real Kernel, recording IChatCompletionService)
+        run: dotnet test KeepYourPrompts.SemanticKernel.sln -c Release --no-build
+      - name: Pack
+        run: dotnet pack src/KeepYourPrompts.SemanticKernel -c Release --no-build -o artifacts
+
+  publish:
+    name: publish to NuGet
+    if: startsWith(github.ref, 'refs/tags/semantic-kernel-dotnet-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write # NuGet trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Check the tag matches the version
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+          test "semantic-kernel-dotnet-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != ${version}"; exit 1; }
+      # Packs only this package; it depends on KeepYourPrompts.Sdk at the same version (release dotnet-v* first).
+      - name: Pack
+        run: dotnet pack src/KeepYourPrompts.SemanticKernel -c Release -o artifacts
+      - name: NuGet login (trusted publishing)
+        id: login
+        if: vars.NUGET_USER != ''
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
+        run: |
+          test -n "$NUGET_API_KEY" || { echo "set vars.NUGET_USER (trusted publishing) or secrets.NUGET_API_KEY"; exit 1; }
+          dotnet nuget push "artifacts/KeepYourPrompts.SemanticKernel.*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

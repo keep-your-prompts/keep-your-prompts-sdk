@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- CI installs both runtimes; locally: dotnet test -f net10.0 (or net8.0). -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS1591;SKEXP0001</NoWarn>
+    <KypConformanceDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../../../conformance'))</KypConformanceDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/KeepYourPrompts.SemanticKernel/KeepYourPrompts.SemanticKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>KypConformanceDir</_Parameter1>
+      <_Parameter2>$(KypConformanceDir)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

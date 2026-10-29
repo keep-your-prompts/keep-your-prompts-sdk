@@ -1,0 +1,84 @@
+name: adapter-spring-ai
+
+on:
+  push:
+    branches: [main]
+    tags: ['spring-ai-v*'] # path filters are not evaluated for tag pushes
+    paths: ['adapters/spring-ai/**', 'java/**', 'conformance/fixtures/**', '.github/workflows/adapter-spring-ai.yml']
+  pull_request:
+    paths: ['adapters/spring-ai/**', 'java/**', 'conformance/fixtures/**', '.github/workflows/adapter-spring-ai.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adapter-spring-ai-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    working-directory: adapters/spring-ai
+    shell: bash
+
+jobs:
+  test:
+    name: test (JDK ${{ matrix.java }})
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21', '25']
+    runs-on: ubuntu-latest
+    steps:
+      # Fixture blobs are hashed byte for byte: never convert line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: |
+            java/pom.xml
+            adapters/spring-ai/pom.xml
+      # The core SDK (com.keepyourprompts:kyp-sdk) from this repository, into the local Maven repository.
+      - name: Install the core SDK
+        working-directory: java
+        run: mvn -B -ntp install -DskipTests
+      - name: mvn verify (real Spring AI classes, ChatClient, ApplicationContextRunner)
+        run: mvn -B -ntp verify
+      - name: Javadoc and sources build
+        if: matrix.java == '21'
+        run: mvn -B -ntp -Prelease -Dgpg.skip -DskipTests package
+
+  publish:
+    name: publish to Maven Central
+    if: startsWith(github.ref, 'refs/tags/spring-ai-v')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: adapters/spring-ai/pom.xml
+          # Writes ~/.m2/settings.xml with server "central" and imports the signing key.
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Check the tag matches the pom version
+        run: |
+          version=$(mvn -B -q help:evaluate -Dexpression=project.version -DforceStdout)
+          test "spring-ai-v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != pom ${version}"; exit 1; }
+      # kyp-sdk must already be on Maven Central at the version this pom names (release java-v* first).
+      - name: Deploy (sources, javadoc, signatures; Sonatype Central Portal)
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn -B -ntp -Prelease -DskipTests deploy
