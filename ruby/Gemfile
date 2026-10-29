@@ -8,3 +8,8 @@ gem "minitest", "~> 5.25"
 gem "rake", "~> 13.2"
 gem "rubocop", "~> 1.75", require: false
 gem "rubocop-minitest", "~> 0.38", require: false
+
+# Only for the tests of the optional OpenTelemetry add-on (require "keepyourprompts/otel"); the gem
+# itself has no runtime dependency.
+gem "opentelemetry-metrics-sdk", ">= 0.6"
+gem "opentelemetry-sdk", "~> 1.5"

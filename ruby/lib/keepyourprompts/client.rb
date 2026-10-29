@@ -41,6 +41,8 @@ module KeepYourPrompts
     def initialize(config = nil, **opts)
       @config = config || Config.new(**opts)
       @callbacks = [].freeze
+      @observers = (@config.observer ? [@config.observer] : []).freeze
+      @round_events = []
       @state = nil
       @source = ""
       @last_error = ""
@@ -71,6 +73,35 @@ module KeepYourPrompts
     # Raises NotFound or MissingVariable. on_missing: :error (default), :keep or :empty.
     def render(name, vars = nil, on_missing: :error, **kwargs)
       Template.render(find(name).text, vars ? vars.merge(kwargs) : kwargs, on_missing: on_missing)
+    rescue NotFound, MissingVariable => e
+      render_failed(name, e)
+      raise
+    end
+
+    # Which deployed body `name` is (PromptMeta): name, version, sha256, app, env, workspace,
+    # revision and the mirror kind that served it. Memory only. Raises NotFound.
+    def meta(name)
+      st = @state
+      meta_of(find_in(st, name), st)
+    end
+
+    # render plus the metadata of the exact body rendered (one consistent state): a Rendered.
+    def render_with_meta(name, vars = nil, on_missing: :error, **kwargs)
+      st = @state
+      prompt = find_in(st, name)
+      text = Template.render(prompt.text, vars ? vars.merge(kwargs) : kwargs, on_missing: on_missing)
+      Rendered.new(text: text, meta: meta_of(prompt, st)).freeze
+    rescue NotFound, MissingVariable => e
+      render_failed(name, e)
+      raise
+    end
+
+    # Subscribe to delivery telemetry (protocol/tracing.md). The observer may define
+    # on_refresh(Telemetry::RefreshRecord) and on_render_error(Telemetry::RenderError); both are
+    # optional, and an observer that raises is logged and ignored. Returns a Proc that unsubscribes.
+    def add_observer(observer)
+      @observer_lock.synchronize { @observers = (@observers + [observer]).freeze }
+      -> { @observer_lock.synchronize { @observers = (@observers - [observer]).freeze } }
     end
 
     def names = @state ? @state.prompts.keys : []
@@ -87,7 +118,8 @@ module KeepYourPrompts
     # Revalidate now across mirrors, ignoring backoff. Returns true when a mirror answered.
     def refresh
       ensure_poller
-      answered, update = @refresh_lock.synchronize { round(ignore_backoff: true) }
+      answered, update, record = @refresh_lock.synchronize { round(ignore_backoff: true, trigger: "manual") }
+      notify(:on_refresh, record)
       deliver(update)
       answered
     end
@@ -130,6 +162,7 @@ module KeepYourPrompts
 
     def init_runtime
       @pid = Process.pid
+      @observer_lock = Mutex.new
       @refresh_lock = Mutex.new
       @wake_lock = Mutex.new
       @wake = ConditionVariable.new
@@ -142,12 +175,13 @@ module KeepYourPrompts
       st && st.prompts[name]
     end
 
-    def find(name)
-      st = @state
-      prompt = st && st.prompts[name]
+    def find(name) = find_in(@state, name)
+
+    def find_in(state, name)
+      prompt = state && state.prompts[name]
       return prompt if prompt
 
-      raise NotFound.new(name, st ? "#{what} revision #{st.manifest.revision}" : "nothing loaded for #{what}")
+      raise NotFound.new(name, state ? "#{what} revision #{state.manifest.revision}" : "nothing loaded for #{what}")
     end
 
     def what = "#{@config.app}/#{@config.env}"
@@ -163,6 +197,7 @@ module KeepYourPrompts
       end
       add_cache if @cache_idx.nil? && @config.cache_dir
       @mirrors.freeze
+      @sources = @mirrors.map { |m, kind| Telemetry.normalize_source(m.name, kind) }.freeze
       @health = @mirrors.map { Health.new(etag: "", failures: 0, retry_at: 0.0, last_error: "", last_ok: nil) }
       polled = @mirrors.each_index.select { |i| @mirrors[i][1] == :http }
       # No network mirror: poll the folders, so a snapshot kept current by a sidecar is picked up live.
@@ -281,6 +316,8 @@ module KeepYourPrompts
         end
         if Digest::SHA256.hexdigest(body) != sha
           msg = "blob #{sha[0, 12]} failed sha256 verification"
+          event("kyp.hash_mismatch", "kyp.mirror" => @mirrors[i][0].name, "kyp.source" => @sources[i],
+                                     "kyp.blob.sha256" => sha)
           log(:warn, "#{@mirrors[i][0].name}: #{msg} (discarded)")
           errors << "#{@mirrors[i][0].name}: #{msg}"
           next
@@ -292,9 +329,12 @@ module KeepYourPrompts
 
     # Start-up step 1: local mirrors only. The highest revision wins; ties go to the earlier mirror.
     def load_local
+      started = [Time.now, monotonic]
+      @round_events = []
       locate_cache
       best = nil
       best_idx = nil
+      errors = []
       @mirrors.each_index do |i|
         next if @mirrors[i][1] == :http
 
@@ -305,13 +345,22 @@ module KeepYourPrompts
         elsif outcome == :failed && !missing
           @health[i].last_error = err
           @last_error = "#{@mirrors[i][0].name}: #{err}"
+          errors << @last_error
+          fallback(i, err)
           log(:warn, @last_error)
         end
       end
-      return unless best
-
-      install(best, best_idx)
-      write_cache(best) unless best_idx == @cache_idx
+      if best
+        install(best, best_idx)
+        write_cache(best) unless best_idx == @cache_idx
+      end
+      # Only a round when there was something local to read.
+      if @mirrors.any? { |_, kind| kind != :http }
+        notify(:on_refresh, refresh_record("start", started, best && [nil, best_idx, true], nil,
+                                           errors.empty? ? "no local copy" : errors.join("; ")))
+      else
+        @round_events = []
+      end
     end
 
     # Start-up step 2: nothing local, so block on the network up to startup_timeout.
@@ -319,7 +368,8 @@ module KeepYourPrompts
       deadline = monotonic + @config.startup_timeout
       delay = 0.1
       loop do
-        @refresh_lock.synchronize { round(ignore_backoff: true, deadline: deadline) }
+        _, _, record = @refresh_lock.synchronize { round(ignore_backoff: true, deadline: deadline, trigger: "start") }
+        notify(:on_refresh, record)
         break if @state || monotonic + delay >= deadline
 
         sleep delay
@@ -338,8 +388,11 @@ module KeepYourPrompts
     end
 
     # One refresh round over the polled mirrors, in order. Caller holds @refresh_lock.
-    # Returns [answered, update_or_nil].
-    def round(ignore_backoff:, deadline: nil)
+    # Returns [answered, update_or_nil, refresh_record_or_nil] (the caller notifies observers
+    # after releasing the lock).
+    def round(ignore_backoff:, deadline: nil, trigger: "poll")
+      started = [Time.now, monotonic]
+      @round_events = []
       locate_cache
       cur = @state
       errors = []
@@ -353,10 +406,11 @@ module KeepYourPrompts
       # Everything we tried failed: give the mirrors in backoff a chance too.
       skipped.each { |i| break if (result = apply_attempt(i, cur, errors)) } unless result || @stop
       finish_round(!result.nil?, errors)
-      [!result.nil?, result&.first]
+      record = refresh_record(trigger, started, result, cur, @last_error)
+      [!result.nil?, result&.first, record]
     end
 
-    # Asks mirror i; returns [update_or_nil] when it answered, nil when it did not.
+    # Asks mirror i; returns [update_or_nil, i, installed] when it answered, nil when it did not.
     def apply_attempt(idx, cur, errors)
       name = @mirrors[idx][0].name
       outcome, state, etag, err = try_mirror(idx, cur, use_etag: true)
@@ -366,15 +420,16 @@ module KeepYourPrompts
         update = install(state, idx)
         write_cache(state)
         record_ok(idx)
-        [update]
+        [update, idx, true]
       when :unchanged
         @health[idx].etag = etag.to_s if etag && !etag.empty?
         record_ok(idx)
         @source = name if cur
-        [nil]
+        [nil, idx, false]
       else
         errors << "#{name}: #{err}"
         outcome == :stale ? @health[idx].last_error = err : record_fail(idx, err)
+        fallback(idx, err)
         nil
       end
     end
@@ -392,6 +447,8 @@ module KeepYourPrompts
       changed += before.keys - state.prompts.keys
       @state = state # the one atomic publish readers see
       @source = @mirrors[idx][0].name
+      event("kyp.update", "kyp.revision.previous" => old ? old.manifest.revision : 0,
+                          "kyp.revision" => state.manifest.revision, "kyp.prompts.changed" => changed.size)
       return nil unless old
 
       log(:info, "#{what}: revision #{old.manifest.revision} -> #{state.manifest.revision} from #{@source}")
@@ -466,7 +523,8 @@ module KeepYourPrompts
 
         first = false
         begin
-          _, update = @refresh_lock.synchronize { round(ignore_backoff: false) }
+          _, update, record = @refresh_lock.synchronize { round(ignore_backoff: false, trigger: "poll") }
+          notify(:on_refresh, record)
           deliver(update)
         rescue StandardError => e
           log(:error, "refresh error: #{e.class}: #{e.message}")
@@ -535,6 +593,77 @@ module KeepYourPrompts
       File.rename(tmp, path)
     ensure
       FileUtils.rm_f(tmp) if tmp && File.exist?(tmp)
+    end
+
+    # --- telemetry (protocol/tracing.md) ------------------------------------------------
+
+    def meta_of(prompt, state)
+      st = state
+      idx = @mirrors.index { |m, _| m.name == @source }
+      PromptMeta.new(name: prompt.name, version: prompt.version, sha256: prompt.sha256, app: @config.app,
+                     env: @config.env, workspace: st ? st.manifest.workspace : "",
+                     revision: st ? st.manifest.revision : 0, source: idx ? @sources[idx] : "").freeze
+    end
+
+    def render_failed(name, error)
+      return if @observers.empty?
+
+      info = Telemetry::RenderError.new(app: @config.app, env: @config.env, name: name,
+                                        error_type: error.is_a?(MissingVariable) ? "missing_variable" : "not_found")
+      notify(:on_render_error, info.freeze)
+    end
+
+    def event(name, attributes)
+      @round_events << Telemetry::Event.new(name: name, time: Time.now, attributes: attributes.freeze).freeze \
+        unless @observers.empty?
+    end
+
+    def fallback(idx, err)
+      event("kyp.fallback", "kyp.mirror" => @mirrors[idx][0].name, "kyp.source" => @sources[idx],
+                            "error.type" => Telemetry.classify_error(err), "kyp.error" => redact(err))
+    end
+
+    # The RefreshRecord of the round that just ended (nil without observers). answer is what
+    # apply_attempt returned for the mirror that answered, nil when none did; previous is the
+    # state held before the round.
+    def refresh_record(trigger, started, answer, previous, error) # rubocop:disable Metrics
+      events = @round_events.freeze
+      @round_events = []
+      return if @observers.empty?
+
+      _, answered_by, updated = answer
+
+      st = @state
+      failed = answered_by.nil?
+      last_fallback = events.reverse.find { |e| e.name == "kyp.fallback" }
+      Telemetry::RefreshRecord.new(
+        app: @config.app, env: @config.env, trigger: trigger,
+        result: if failed
+                  "failed"
+                else
+                  (updated ? "updated" : "not_modified")
+                end,
+        start_time: started[0], duration: [monotonic - started[1], 0.0].max,
+        mirror: failed ? "" : @mirrors[answered_by][0].name, source: failed ? "" : @sources[answered_by],
+        revision: st ? st.manifest.revision : 0, previous_revision: previous ? previous.manifest.revision : 0,
+        workspace: st ? st.manifest.workspace : "", error: failed ? redact(error) : "",
+        error_type: if failed
+                      last_fallback ? last_fallback.attributes["error.type"] : Telemetry.classify_error(error)
+                    else
+                      ""
+                    end,
+        events: events
+      ).freeze
+    end
+
+    def notify(method, arg)
+      return if arg.nil?
+
+      @observers.each do |o|
+        o.public_send(method, arg) if o.respond_to?(method)
+      rescue StandardError => e
+        log(:error, "observer raised: #{e.class}: #{e.message}")
+      end
     end
 
     # --- misc -------------------------------------------------------------------------

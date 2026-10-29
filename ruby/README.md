@@ -146,6 +146,7 @@ A thread does not survive `fork`. The gem hooks `Process._fork` (Ruby 3.1+), whi
 | `user_agent` | `kyp-ruby/0.1.0` | |
 | `logger` | `$stderr`; anything with `#debug/#info/#warn/#error` | |
 | `log_level` | `:warn` | `KYP_LOG=debug\|info\|warn\|error\|off` |
+| `observer` | none; delivery telemetry hook, see [Observability](#observability) | |
 
 `mirrors` replaces the defaults with your own ordered list of `KeepYourPrompts::Mirror.file(dir, name:)` and `KeepYourPrompts::Mirror.http(base_url, name:, token:)`; the disk cache still applies. To send the delivery key as a header to the origin instead of in the path: `Mirror.http("https://api.keepyourprompts.com/v1/delivery", name: "origin", token: key)`. The delivery key never appears in logs, errors, `status` or `inspect` (shortened to `kypd_Ab3d...`). HTTPS goes through `https_proxy`/`no_proxy` when set.
 
@@ -165,6 +166,69 @@ Every copy of your prompts uses the same layout (`envs/<app>/<env>.json`, `blobs
 
 **Refresh.** Every `poll_interval` the poller asks mirrors 3 to 5 in order with `If-None-Match` and stops at the first that answers (`304` costs nothing). A new revision has its missing blobs fetched (disk cache, then the same mirror, then any other), each verified with SHA-256, written to the disk cache, and then swapped in. A lower revision is ignored; a manifest for another app/env or schema is rejected. A failing mirror is skipped for 0, 1, 3, 7, ... poll intervals (capped at `max_backoff`) and retried first if nothing else answers. **Failures never evict**: with every mirror down, reads keep returning the last good prompts and `status.stale_for` grows. With no network mirror configured the snapshot folder itself is polled. The disk cache layout (`<cache_dir>/<workspace>/<app>/<env>/`) is shared with the other SDKs.
 
+## Observability
+
+The gem reports which prompt version each LLM call used and how delivery is doing, with the attribute,
+span and metric names of [`protocol/tracing.md`](../protocol/tracing.md), the same in every SDK. Nothing here
+needs OpenTelemetry; the OpenTelemetry add-on is an optional `require`.
+
+**Prompt metadata** (memory only, no content):
+
+```ruby
+r = prompts.render_with_meta("triage", company: "Acme")
+r.text                      # the rendered prompt
+r.meta.attributes           # {"kyp.prompt.name"=>"triage", "kyp.prompt.version"=>7, "kyp.prompt.sha256"=>"...",
+                            #  "kyp.app"=>..., "kyp.env"=>..., "kyp.revision"=>42, "kyp.workspace"=>..., "kyp.source"=>"cdn",
+                            #  "gen_ai.prompt.name"=>"triage", "gen_ai.prompt.version"=>"7"}
+r.meta.trace_metadata       # flat keys: {"kyp_prompt_name"=>"triage", "kyp_prompt_version"=>7, ...}
+```
+
+`langfuse_metadata` and `langsmith_metadata` return the same flat map, for Langfuse's `metadata:` and LangSmith's
+`traceable` metadata (or as `Helicone-Property-<key>` headers). `kyp.source` is the mirror kind: `snapshot`, `cache`,
+`cdn`, `origin`, `git` or `custom`.
+
+**OpenTelemetry** (optional): add `gem "opentelemetry-api"` (or `opentelemetry-sdk`), plus
+`opentelemetry-metrics-api` (or `opentelemetry-metrics-sdk`) for metrics, and
+
+```ruby
+require "keepyourprompts/otel"
+
+otel = KeepYourPrompts::OTel.instrument                     # tracer/meter: the global providers
+PROMPTS = KeepYourPrompts::Client.from_env(observer: otel)  # so the start-up round is traced too
+otel.attach(PROMPTS)                                        # (or simply KeepYourPrompts::OTel.instrument(PROMPTS))
+
+tracer.in_span("chat anthropic") do
+  r = PROMPTS.render_with_meta("triage", company: "Acme")
+  otel.annotate(r)                                          # kyp.* + gen_ai.prompt.* on the current span
+  client.messages.create(system: r.text, ...)
+end
+```
+
+- `annotate(prompt, span: nil, variables: nil, capture_content: nil)` takes a name, a `PromptMeta` or a
+  `Rendered`, annotates the current span (or `span:`) and returns the `PromptMeta`. It is a no-op on a span that
+  is not recording. `KeepYourPrompts::OTel.annotate(meta, span:, ...)` does the same without a client.
+- `instrument` records a `kyp.refresh` span per refresh round (start-up, poll, manual `refresh`; a manual refresh is
+  a child of the current span) with `kyp.fallback`, `kyp.hash_mismatch` and `kyp.update` events, and the metrics
+  `kyp.refresh.duration`, `kyp.fallbacks`, `kyp.hash_mismatches`, `kyp.render.errors` and the gauges
+  `kyp.staleness` and `kyp.revision`, under the instrumentation scope `keepyourprompts`. Rounds that only confirmed
+  what is held (the 30-second heartbeat) are counted but not traced unless `trace_all_refreshes: true`.
+- Options: `tracer_provider:`, `meter_provider:`, `capture_content:` (default `false`), `gen_ai_attributes:`
+  (default `true`), `open_inference:` (default `false`: `prompt.vendor`, `prompt.id`, `llm.prompt_template.*`),
+  `trace_all_refreshes:` (default `false`). `otel.shutdown` stops it. The Ruby metrics SDK reports one attribute set
+  per observable gauge: instrument one client per meter provider.
+
+**Content capture is off by default.** With `capture_content: true` (or `KYP_OTEL_CAPTURE_CONTENT=true`),
+`annotate` also records the raw template as `kyp.prompt.template` and each variable passed as
+`gen_ai.prompt.variable.<name>`. Templates can hold proprietary instructions and variables often hold personal
+data, customer content or secrets; with capture on they reach every exporter and backend of your OpenTelemetry
+pipeline and stay there under its retention. Turn it on only where that is acceptable. SDK spans and metrics never
+carry content.
+
+**Without OpenTelemetry**, pass any object with `on_refresh(record)` and/or `on_render_error(info)` as `observer:` or
+to `add_observer`: `KeepYourPrompts::Telemetry::RefreshRecord` has `trigger`, `result`, `start_time`, `duration`,
+`mirror`, `source`, `revision`, `previous_revision`, `workspace`, `error`, `error_type` and `events`. Observers run
+outside the client's locks; one that raises is logged and ignored.
+
 ## Snapshots
 
 `kyp pull --app support-bot --env prod --out ./prompts` writes a complete mirror to a folder. Commit it or bake it into the image and set `KYP_SNAPSHOT_DIR=./prompts` (or `snapshot_dir:` in the yml): the app boots with zero network and upgrades in the background as soon as a network mirror answers.
@@ -178,6 +242,9 @@ Every copy of your prompts uses the same layout (`envs/<app>/<env>.json`, `blobs
 | `try_get(name)`, `include?(name)` | |
 | `prompt(name)` | `Prompt` struct: `name`, `version`, `sha256`, `variables`, `text`, `render(**vars)`. |
 | `render(name, vars = nil, on_missing: :error, **vars)` | Raises `NotFound` or `MissingVariable` (`#names`). |
+| `meta(name)` | `PromptMeta` of the body held: `name`, `version`, `sha256`, `app`, `env`, `workspace`, `revision`, `source`; `attributes`, `trace_metadata`, `langfuse_metadata`, `langsmith_metadata`. Raises `NotFound`. |
+| `render_with_meta(name, vars = nil, on_missing: :error, **vars)` | `Rendered` (`text`, `meta`): the metadata of the exact body rendered. |
+| `add_observer(observer)` | Delivery telemetry (`on_refresh`, `on_render_error`). Returns a `Proc` that unsubscribes. |
 | `names`, `revision` | |
 | `on_update { \|update\| }` | `Update`: `old_revision`, `new_revision`, `source`, `changed`. Runs on the poller thread (or the caller of `refresh`); exceptions are logged. |
 | `refresh` | Revalidate now, ignoring backoff. `true` if a mirror answered. |
