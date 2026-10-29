@@ -238,14 +238,16 @@ Example alerts: `max(kyp_staleness_seconds) > 600` (nothing confirmed in 10 minu
 `PromptMeta` (or the result of `renderWithMeta`) in place of a prompt name, and then sends **its** `sha256`, so an
 outcome is attributed to the body the call actually used even when a new revision arrived between render and report.
 Reporting by name keeps working (it uses the body held at report time). The wire format is unchanged.
+SDKs without outcome reporting (Java and .NET today) simply have nothing to wire.
 
 ## SDK architecture: no hard dependency on OpenTelemetry
 
 The core package has no telemetry dependency. It exposes:
 
 1. **Prompt metadata** and the plain-map helpers above.
-2. **An observer hook**: `addObserver(observer) -> unsubscribe` (and/or an `observer` option). The core calls it,
-   outside any lock and never on the read path except for render errors, with:
+2. **An observer hook**: `addObserver(observer) -> unsubscribe` (and/or an `observer` option). The core calls it
+   on the thread or task that ran the refresh round (never while holding a lock the read path takes), and on the
+   read path only for render errors, with:
    - `onRefresh(RefreshRecord)` after each round: `trigger`, `result`, `startTime` (wall clock), `duration`,
      `mirror`/`source` of the answering mirror, `revision`, `previousRevision`, `workspace`, `error`/`errorType`
      when failed, and the ordered list of span events (`kyp.fallback`, `kyp.hash_mismatch`, `kyp.update`) with their
