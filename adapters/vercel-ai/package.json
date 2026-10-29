@@ -1,0 +1,71 @@
+{
+  "name": "@keepyourprompts/ai-sdk",
+  "version": "0.1.0",
+  "description": "Keep Your Prompts for the Vercel AI SDK: deployed prompts as instructions and messages for generateText/streamText, and a middleware that tags each call with the prompt name, version and sha256.",
+  "keywords": [
+    "prompts",
+    "llm",
+    "prompt-management",
+    "ai-sdk",
+    "vercel-ai",
+    "middleware"
+  ],
+  "homepage": "https://keepyourprompts.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keep-your-prompts/keep-your-prompts-sdk.git",
+    "directory": "adapters/vercel-ai"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@keepyourprompts/sdk": "^0.1.0",
+    "ai": "^7.0.0",
+    "@ai-sdk/provider": "^4.0.0"
+  },
+  "devDependencies": {
+    "@ai-sdk/provider": "^4.0.34",
+    "@keepyourprompts/sdk": "file:../../typescript",
+    "@types/node": "^20.19.43",
+    "ai": "^7.0.156",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12",
+    "zod": "^4.6.7"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
